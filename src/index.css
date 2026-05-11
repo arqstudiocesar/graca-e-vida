@@ -1,0 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Georgia", serif;
+  --font-sans: "Helvetica Neue", "Arial", sans-serif;
+  
+  --color-brand-olive: #5A5A40;
+  --color-brand-cream: #F5F2ED;
+  --color-brand-page: #FDFBF7;
+  --color-brand-terracotta: #C67B5C;
+  --color-brand-text: #2D2D2A;
+  --color-brand-muted: #7A7A75;
+  
+  --color-menstr: #E08C8C;
+  --color-fertile: #F4D06F;
+  --color-infertile: #9BB694;
+  --color-post: #81A4CD;
+  
+  --shadow-soft: 0 10px 30px rgba(90, 90, 64, 0.05);
+}
+
+@layer base {
+  body {
+    @apply font-serif bg-brand-page text-brand-text antialiased;
+  }
+  
+  h1, h2, h3, h4 {
+    @apply font-serif font-light tracking-tight;
+  }
+  
+  button, span, p, label, input {
+    @apply font-sans;
+  }
+}
