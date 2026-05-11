@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Heart, Calendar as CalendarIcon, Droplets, BookOpen, User, PlusCircle, ChevronLeft, ChevronRight, Info, Thermometer, BarChart3, ShieldCheck } from 'lucide-react';
+import { Heart, Calendar as CalendarIcon, Droplets, BookOpen, User, PlusCircle, ChevronLeft, ChevronRight, Info, Thermometer, BarChart3, ShieldCheck, ChevronDown } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, isToday, parseISO, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { DailyLog, FertilityStatus, UserProfile, MUCUS_VALUES, MethodHistoryEntry } from './types';
@@ -26,7 +26,6 @@ const INITIAL_PROFILE: UserProfile = {
   tutorialCompleted: false,
 };
 
-// --- UTILS ---
 function generateICS(logs: DailyLog[]) {
   let ics = [
     'BEGIN:VCALENDAR',
@@ -35,12 +34,9 @@ function generateICS(logs: DailyLog[]) {
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH'
   ];
-
   logs.forEach(log => {
     const status = getFertilityStatus(logs, log.date);
     const dateStr = log.date.replace(/-/g, '');
-    
-    // Period event
     if (log.bleeding && log.bleeding !== 'none') {
       ics.push('BEGIN:VEVENT');
       ics.push(`DTSTART;VALUE=DATE:${dateStr}`);
@@ -48,8 +44,6 @@ function generateICS(logs: DailyLog[]) {
       ics.push('DESCRIPTION:Registro Graça & Vida');
       ics.push('END:VEVENT');
     }
-
-    // Peak day
     if (log.isPeak) {
       ics.push('BEGIN:VEVENT');
       ics.push(`DTSTART;VALUE=DATE:${dateStr}`);
@@ -57,8 +51,6 @@ function generateICS(logs: DailyLog[]) {
       ics.push('DESCRIPTION:Confirmado no App Graça & Vida');
       ics.push('END:VEVENT');
     }
-
-    // Potential fertile window (high fertility)
     if (status === 'high-fertility' || status === 'potentially-fertile') {
       ics.push('BEGIN:VEVENT');
       ics.push(`DTSTART;VALUE=DATE:${dateStr}`);
@@ -67,7 +59,6 @@ function generateICS(logs: DailyLog[]) {
       ics.push('END:VEVENT');
     }
   });
-
   ics.push('END:VCALENDAR');
   return ics.join('\r\n');
 }
@@ -82,12 +73,11 @@ export default function App() {
   useEffect(() => {
     const savedLogs = localStorage.getItem(STORAGE_KEY_LOGS);
     const savedProfile = localStorage.getItem(STORAGE_KEY_PROFILE);
-    
     if (savedLogs) try { setLogs(JSON.parse(savedLogs)); } catch (e) {}
     if (savedProfile) {
-      try { 
+      try {
         const parsed = JSON.parse(savedProfile);
-        setProfile({ ...INITIAL_PROFILE, ...parsed }); // Blend for safety
+        setProfile({ ...INITIAL_PROFILE, ...parsed });
         if (!parsed.tutorialCompleted) setShowTutorial(true);
       } catch (e) {}
     } else {
@@ -95,18 +85,13 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(logs));
-  }, [logs]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
-  }, [profile]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(logs)); }, [logs]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile)); }, [profile]);
 
   const handleSaveLog = (newLog: DailyLog) => {
     setLogs(prev => {
       const filtered = prev.filter(l => l.date !== newLog.date);
-      return [...filtered, newLog].sort((a,b) => a.date.localeCompare(b.date));
+      return [...filtered, newLog].sort((a, b) => a.date.localeCompare(b.date));
     });
     setActiveTab('dashboard');
   };
@@ -114,7 +99,6 @@ export default function App() {
   const handleUpdateProfile = (updates: Partial<UserProfile>) => {
     setProfile(prev => {
       const newProfile = { ...prev, ...updates };
-      // Tracking method changes
       if (updates.selectedMethod && updates.selectedMethod !== prev.selectedMethod) {
         newProfile.methodHistory = [
           ...(prev.methodHistory || []),
@@ -134,16 +118,16 @@ export default function App() {
 
   const renderSection = () => {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard logs={logs} onAddLog={(d) => { if(d) setSelectedDate(d); setActiveTab('log'); }} profile={profile} />;
+      case 'dashboard': return <Dashboard logs={logs} onAddLog={(d) => { if (d) setSelectedDate(d); setActiveTab('log'); }} profile={profile} />;
       case 'calendar': return <Calendar logs={logs} onDateSelect={(d) => { setSelectedDate(d); setActiveTab('log'); }} />;
       case 'doctrine': return <Doctrine />;
       case 'reports': return <Reports logs={logs} profile={profile} />;
       case 'log': return (
-        <LogForm 
-          initialDate={selectedDate} 
-          onSave={handleSaveLog} 
+        <LogForm
+          initialDate={selectedDate}
+          onSave={handleSaveLog}
           onDelete={handleDeleteLog}
-          onCancel={() => setActiveTab('dashboard')} 
+          onCancel={() => setActiveTab('dashboard')}
           existingLog={logs.find(l => l.date === selectedDate)}
           selectedMethod={profile.selectedMethod}
         />
@@ -161,13 +145,11 @@ export default function App() {
           <Tutorial onComplete={() => handleUpdateProfile({ tutorialCompleted: true })} onDismiss={() => setShowTutorial(false)} />
         )}
       </AnimatePresence>
-      
-      {/* Sidebar (Desktop) / Header (Mobile) */}
+
       <aside className="lg:w-72 lg:h-screen lg:bg-brand-cream lg:border-r lg:border-black/5 lg:p-10 p-6 flex lg:flex-col justify-between items-center lg:items-start lg:sticky lg:top-0 h-auto">
         <div className="w-full">
           <h1 className="text-2xl font-bold text-brand-olive tracking-tighter mb-8 italic lg:block hidden">Graça & Vida</h1>
           <h1 className="text-xl font-bold text-brand-olive italic lg:hidden">Graça & Vida</h1>
-          
           <nav className="hidden lg:block space-y-2">
             {NAV_ITEMS.map((item) => (
               <button
@@ -175,8 +157,8 @@ export default function App() {
                 onClick={() => setActiveTab(item.id)}
                 className={cn(
                   "flex items-center gap-3 w-full text-left py-3 px-4 rounded-xl transition-all uppercase tracking-widest text-[11px] font-bold",
-                  activeTab === item.id 
-                    ? "bg-white text-brand-olive shadow-soft border border-black/5" 
+                  activeTab === item.id
+                    ? "bg-white text-brand-olive shadow-soft border border-black/5"
                     : "text-brand-muted hover:bg-white/50"
                 )}
               >
@@ -186,15 +168,13 @@ export default function App() {
             ))}
           </nav>
         </div>
-
         <div className="lg:block hidden pt-6 border-t border-black/5 w-full">
           <p className="text-[10px] uppercase tracking-widest text-brand-muted font-bold mb-1">Método Ativo</p>
           <p className="text-xs font-bold text-brand-olive opacity-80 italic">{currentMethod.name}</p>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 lg:p-12 p-6 pb-24 lg:pb-12 h-screen overflow-y-auto w-full">
+      <main className="flex-1 lg:p-12 p-6 pb-20 lg:pb-12 h-screen overflow-y-auto w-full">
         <div className="max-w-4xl mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
@@ -210,19 +190,19 @@ export default function App() {
         </div>
       </main>
 
-      {/* Mobile Nav */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-brand-olive/10 h-16 flex items-center justify-around px-2 z-50 shadow-lg">
+      {/* FIX 1 — Menu mobile: flex-1 garante espaço igual para todos os itens */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-brand-olive/10 flex items-stretch z-50 shadow-lg" style={{ height: '56px' }}>
         {NAV_ITEMS.map((item) => (
           <button
             key={item.id}
             onClick={() => setActiveTab(item.id)}
             className={cn(
-              "flex flex-col items-center gap-1 transition-all px-3 py-1",
+              "flex flex-col items-center justify-center gap-0.5 transition-all flex-1 py-1",
               activeTab === item.id ? "text-brand-olive" : "text-brand-muted"
             )}
           >
-            <item.icon size={20} />
-            <span className="text-[9px] font-bold uppercase tracking-widest">{item.label}</span>
+            <item.icon size={17} strokeWidth={activeTab === item.id ? 2.5 : 1.8} />
+            <span className="text-[7.5px] font-bold uppercase tracking-tight leading-none">{item.label}</span>
           </button>
         ))}
       </nav>
@@ -230,55 +210,35 @@ export default function App() {
   );
 }
 
-// DASHBOARD SECTION
+// DASHBOARD
 function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (date?: string) => void, profile: UserProfile }) {
   const today = new Date().toISOString().split('T')[0];
   const todayStatus = getFertilityStatus(logs, today);
   const todayLog = logs.find(l => l.date === today);
-  
-  // Daily Bible Verse Logic
   const verseIndex = new Date().getDate() % BIBLE_VERSES.length;
   const verse = BIBLE_VERSES[verseIndex];
 
-  const statusLabel = {
+  const statusLabel: Record<string, string> = {
     'menstrual': 'Fase Menstrual',
     'infertile': 'Fase Infértil',
     'potentially-fertile': 'Fértil',
     'high-fertility': 'Alta Fertilidade',
     'post-ovulatory': 'Pós-Ovulatório'
-  }[todayStatus];
+  };
 
   const color = FERTILITY_COLORS[todayStatus];
-
-  // Chart data Preparation
-  const chartData = logs.slice(-15).map(l => ({
-    date: format(parseISO(l.date), 'dd/MM'),
-    temp: l.temperature || null,
-    status: getFertilityStatus(logs, l.date)
-  }));
-
   const recentLogs = logs.slice(-5).reverse();
 
   return (
     <div className="space-y-8">
       <div className="bg-white p-10 rounded-[32px] shadow-soft border border-brand-olive/5 relative overflow-hidden flex flex-col items-center text-center">
         <div className="absolute top-0 left-0 right-0 h-1.5" style={{ backgroundColor: color }} />
-        
         <p className="text-[11px] uppercase tracking-[0.2em] text-brand-muted font-bold mb-4">Olá, {profile.name}</p>
-        <h2 className="text-4xl font-serif text-brand-text mb-2 italic leading-tight">{statusLabel}</h2>
+        <h2 className="text-4xl font-serif text-brand-text mb-2 italic leading-tight">{statusLabel[todayStatus]}</h2>
         <p className="text-sm font-sans text-brand-muted mb-10">{format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}</p>
-        
         <div className="relative group">
-          <div 
-            className="w-40 h-40 rounded-full flex items-center justify-center transition-all duration-1000"
-            style={{ 
-              backgroundColor: `${color}10`,
-            }}
-          >
-            <div 
-              className="w-28 h-28 rounded-full flex items-center justify-center shadow-lg transition-transform duration-500 group-hover:scale-105"
-              style={{ backgroundColor: color }}
-            >
+          <div className="w-40 h-40 rounded-full flex items-center justify-center" style={{ backgroundColor: `${color}10` }}>
+            <div className="w-28 h-28 rounded-full flex items-center justify-center shadow-lg transition-transform duration-500 group-hover:scale-105" style={{ backgroundColor: color }}>
               <Heart className="text-white" fill="white" size={40} />
             </div>
           </div>
@@ -286,7 +246,7 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <button 
+        <button
           onClick={() => onAddLog(today)}
           className={cn(
             "flex items-center justify-between p-8 rounded-3xl hover:translate-y-[-2px] transition-all shadow-lg group overflow-hidden relative",
@@ -294,20 +254,17 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
           )}
         >
           <div className="relative z-10 flex flex-col items-start gap-1">
-            <span className="text-[10px] uppercase font-bold tracking-widest opacity-80">
-              {todayLog ? 'Entrada Completa' : 'Iniciar Entrada'}
-            </span>
+            <span className="text-[10px] uppercase font-bold tracking-widest opacity-80">{todayLog ? 'Entrada Completa' : 'Iniciar Entrada'}</span>
             <span className="text-lg font-bold">{todayLog ? 'Editar Hoje' : 'Registrar Hoje'}</span>
           </div>
           <PlusCircle size={28} className="relative z-10 opacity-60 group-hover:opacity-100 transition-opacity" />
-          <div className="absolute top-0 left-0 w-full h-full bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity" />
         </button>
 
         <div className="flex items-center justify-between p-8 bg-white rounded-3xl border border-brand-olive/5 shadow-soft">
           <div className="flex flex-col gap-1">
             <span className="text-[10px] uppercase font-bold tracking-widest text-brand-muted">Última Temperatura</span>
             <span className="text-2xl font-light text-brand-olive">
-              {logs.length > 0 && logs[logs.length-1].temperature ? logs[logs.length-1].temperature : '36.00'}
+              {logs.length > 0 && logs[logs.length - 1].temperature ? logs[logs.length - 1].temperature : '36.00'}
               <span className="text-sm ml-1 opacity-60">°C</span>
             </span>
           </div>
@@ -323,7 +280,7 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
           </div>
           <div className="space-y-3">
             {recentLogs.map(l => (
-              <button 
+              <button
                 key={l.date}
                 onClick={() => onAddLog(l.date)}
                 className="w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-black/[0.03] shadow-soft hover:border-brand-olive/20 transition-all text-left"
@@ -338,9 +295,7 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
                 {l.temperature && <span className="text-[10px] font-bold text-brand-olive opacity-60">{l.temperature}°C</span>}
               </button>
             ))}
-            {recentLogs.length === 0 && (
-              <p className="text-center py-8 text-xs text-brand-muted italic">Nenhum registro ainda.</p>
-            )}
+            {recentLogs.length === 0 && <p className="text-center py-8 text-xs text-brand-muted italic">Nenhum registro ainda.</p>}
           </div>
         </div>
 
@@ -358,37 +313,31 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
         </div>
       </div>
 
-      {/* Biblical Quote Card */}
       <div className="bg-white p-10 rounded-[40px] shadow-soft border border-brand-olive/5 flex flex-col items-center text-center space-y-4">
         <div className="p-3 bg-brand-cream rounded-full mb-2">
-           <Heart size={20} className="text-brand-terracotta" />
+          <Heart size={20} className="text-brand-terracotta" />
         </div>
-        <q className="text-lg font-serif italic text-brand-text leading-relaxed">
-           {verse.text}
-        </q>
-        <cite className="text-[10px] uppercase tracking-widest font-bold text-brand-muted not-italic">
-           — {verse.ref}
-        </cite>
+        <q className="text-lg font-serif italic text-brand-text leading-relaxed">{verse.text}</q>
+        <cite className="text-[10px] uppercase tracking-widest font-bold text-brand-muted not-italic">— {verse.ref}</cite>
       </div>
 
       <div className="text-center py-8">
-        <p className="text-xs text-brand-muted font-sans font-medium uppercase tracking-widest opacity-60 italic">
-          "O amor é o dom de si."
-        </p>
+        <p className="text-xs text-brand-muted font-sans font-medium uppercase tracking-widest opacity-60 italic">"O amor é o dom de si."</p>
       </div>
     </div>
   );
 }
 
-// CALENDAR SECTION
+// FIX 2 — CALENDÁRIO: usa format(day,'yyyy-MM-dd') para evitar bug de fuso horário
+// e adiciona células vazias para alinhar o primeiro dia da semana corretamente.
 function Calendar({ logs, onDateSelect }: { logs: DailyLog[], onDateSelect: (d: string) => void }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
 
-  const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
-  const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
+  // getDay(): 0=Dom,1=Seg,...,6=Sáb — alinha ao cabeçalho Dom/Seg/.../Sáb
+  const firstDayOfWeek = monthStart.getDay();
 
   return (
     <div className="space-y-6">
@@ -400,8 +349,8 @@ function Calendar({ logs, onDateSelect }: { logs: DailyLog[], onDateSelect: (d: 
           <p className="text-xs text-brand-muted uppercase tracking-widest font-bold">Calendário de Observação</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={prevMonth} className="w-12 h-12 flex items-center justify-center bg-white rounded-full shadow-sm hover:shadow-md transition-all border border-black/5 text-brand-olive"><ChevronLeft size={20} /></button>
-          <button onClick={nextMonth} className="w-12 h-12 flex items-center justify-center bg-white rounded-full shadow-sm hover:shadow-md transition-all border border-black/5 text-brand-olive"><ChevronRight size={20} /></button>
+          <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="w-12 h-12 flex items-center justify-center bg-white rounded-full shadow-sm hover:shadow-md transition-all border border-black/5 text-brand-olive"><ChevronLeft size={20} /></button>
+          <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="w-12 h-12 flex items-center justify-center bg-white rounded-full shadow-sm hover:shadow-md transition-all border border-black/5 text-brand-olive"><ChevronRight size={20} /></button>
         </div>
       </header>
 
@@ -411,10 +360,13 @@ function Calendar({ logs, onDateSelect }: { logs: DailyLog[], onDateSelect: (d: 
             <span key={d} className="text-[11px] font-bold text-brand-muted uppercase tracking-widest leading-loose">{d}</span>
           ))}
         </div>
-
         <div className="grid grid-cols-7 gap-3">
+          {/* Células vazias para alinhar o primeiro dia */}
+          {Array.from({ length: firstDayOfWeek }).map((_, i) => <div key={`e${i}`} />)}
+
           {days.map(day => {
-            const dateStr = day.toISOString().split('T')[0];
+            // format() usa hora local, evitando o bug de UTC que causava dia errado
+            const dateStr = format(day, 'yyyy-MM-dd');
             const hasLog = logs.some(l => l.date === dateStr);
             const status = getFertilityStatus(logs, dateStr);
             const color = hasLog ? FERTILITY_COLORS[status] : undefined;
@@ -436,7 +388,6 @@ function Calendar({ logs, onDateSelect }: { logs: DailyLog[], onDateSelect: (d: 
                 {hasLog && logs.find(l => l.date === dateStr)?.isPeak && (
                   <div className="absolute top-2 right-2 w-2 h-2 bg-white/80 rounded-full shadow-sm border border-black/10" />
                 )}
-                <div className="absolute inset-x-0 bottom-[-4px] h-0.5 bg-brand-olive scale-x-0 group-hover:scale-x-50 transition-transform hidden lg:block" />
               </button>
             );
           })}
@@ -444,12 +395,7 @@ function Calendar({ logs, onDateSelect }: { logs: DailyLog[], onDateSelect: (d: 
       </div>
 
       <div className="flex flex-wrap gap-4 py-8 px-4 justify-center">
-        {Object.entries({
-          'menstrual': 'Menstruação',
-          'infertile': 'Infértil',
-          'potentially-fertile': 'Fértil',
-          'post-ovulatory': 'Pós-Ovulatório'
-        }).map(([status, label]) => (
+        {Object.entries({ 'menstrual': 'Menstruação', 'infertile': 'Infértil', 'potentially-fertile': 'Fértil', 'post-ovulatory': 'Pós-Ovulatório' }).map(([status, label]) => (
           <div key={status} className="flex items-center gap-3 bg-white py-2 px-4 rounded-full shadow-sm border border-black/5">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: FERTILITY_COLORS[status as keyof typeof FERTILITY_COLORS] }} />
             <span className="text-[10px] text-brand-muted font-bold uppercase tracking-wider">{label}</span>
@@ -460,7 +406,7 @@ function Calendar({ logs, onDateSelect }: { logs: DailyLog[], onDateSelect: (d: 
   );
 }
 
-// LOG FORM SECTION
+// LOG FORM — FIX 3: opções de muco adaptadas quando há sangramento
 type LogFormProps = {
   initialDate: string;
   onSave: (log: DailyLog) => void;
@@ -475,17 +421,22 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
   const fields = methodInfo.requiredFields;
 
   const [log, setLog] = useState<DailyLog>(existingLog || {
-    date: initialDate,
-    mucus: 'none',
-    sensation: 'not_observed',
-    bleeding: 'none',
-    notes: '',
+    date: initialDate, mucus: 'none', sensation: 'not_observed', bleeding: 'none', notes: '',
   });
-
   const [activeHelp, setActiveHelp] = useState<string | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
 
-  const mucusOptions = [
+  const isBleeding = log.bleeding && log.bleeding !== 'none';
+
+  // Opções de muco durante sangramento — coerentes com o período menstrual
+  const mucusOptionsBleeding = [
+    { id: 'none', label: 'Escasso/inexist.', desc: 'Pouco ou nenhum muco visível durante o fluxo.' },
+    { id: 'dry', label: 'Seco', desc: 'Sensação de secura entre os sangramentos.' },
+    { id: 'sticky', label: 'Pouco visível', desc: 'Pequena quantidade, difícil de avaliar no fluxo.' },
+  ];
+
+  // Opções de muco normais (sem sangramento)
+  const mucusOptionsNormal = [
     { id: 'none', label: 'Nenhum', desc: 'Sente-se seca e não vê nada.' },
     { id: 'not_observed', label: 'Não Obs.', desc: 'Não foi possível verificar hoje.' },
     { id: 'dry', label: 'Seco', desc: 'Sensação de secura, sem umidade.' },
@@ -494,6 +445,8 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
     { id: 'watery', label: 'Aquoso', desc: 'Molhado, transparente, como água.' },
     { id: 'eggwhite', label: 'Elástico', desc: 'Como clara de ovo crua, estica vários cm.' },
   ];
+
+  const mucusOptions = isBleeding ? mucusOptionsBleeding : mucusOptionsNormal;
 
   const sensationOptions = [
     { id: 'not_observed', label: 'Não obs.', desc: 'Sem percepção clara.' },
@@ -514,29 +467,18 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
       <header className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-4 mb-2">
-            <div className="p-2 bg-brand-olive/10 text-brand-olive rounded-lg">
-              <CalendarIcon size={20} />
-            </div>
-            <h2 className="text-3xl font-serif text-brand-text">
-              {format(parseISO(initialDate), "d 'de' MMMM", { locale: ptBR })}
-            </h2>
+            <div className="p-2 bg-brand-olive/10 text-brand-olive rounded-lg"><CalendarIcon size={20} /></div>
+            <h2 className="text-3xl font-serif text-brand-text">{format(parseISO(initialDate), "d 'de' MMMM", { locale: ptBR })}</h2>
           </div>
           <p className="text-xs text-brand-muted uppercase tracking-widest font-bold translate-x-[52px]">Registro Diário: {methodInfo.name}</p>
         </div>
-        <button 
-          onClick={() => setActiveHelp(activeHelp ? null : 'general')}
-          className="p-3 bg-brand-cream text-brand-olive rounded-full hover:bg-brand-olive hover:text-white transition-all shadow-sm"
-        >
+        <button onClick={() => setActiveHelp(activeHelp ? null : 'general')} className="p-3 bg-brand-cream text-brand-olive rounded-full hover:bg-brand-olive hover:text-white transition-all shadow-sm">
           <Info size={20} />
         </button>
       </header>
 
       {activeHelp && (
-        <motion.div 
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          className="bg-brand-cream/50 p-6 rounded-3xl border border-brand-olive/10 text-xs text-brand-text/70 italic leading-relaxed space-y-3 font-serif"
-        >
+        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="bg-brand-cream/50 p-6 rounded-3xl border border-brand-olive/10 text-xs text-brand-text/70 italic leading-relaxed space-y-3 font-serif">
           <div className="flex justify-between items-center mb-2">
             <span className="font-bold uppercase tracking-widest text-brand-olive">Guia de Observação</span>
             <button onClick={() => setActiveHelp(null)} className="text-brand-muted hover:text-brand-text">Fechar</button>
@@ -556,16 +498,9 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
             </div>
             <div className="flex flex-wrap gap-2">
               {bleedingOptions.map(opt => (
-                <button
-                  key={opt.id}
-                  onClick={() => setLog({ ...log, bleeding: opt.id as any })}
-                  className={cn(
-                    "px-5 py-3 rounded-full text-xs font-medium transition-all border flex flex-col items-center gap-0.5",
-                    log.bleeding === opt.id 
-                      ? "bg-brand-terracotta text-white border-transparent shadow-md" 
-                      : "bg-white text-brand-muted border-black/[0.05] hover:border-black/10"
-                  )}
-                >
+                <button key={opt.id} onClick={() => setLog({ ...log, bleeding: opt.id as any })}
+                  className={cn("px-5 py-3 rounded-full text-xs font-medium transition-all border flex flex-col items-center gap-0.5",
+                    log.bleeding === opt.id ? "bg-brand-terracotta text-white border-transparent shadow-md" : "bg-white text-brand-muted border-black/[0.05] hover:border-black/10")}>
                   <span>{opt.label}</span>
                   {log.bleeding === opt.id && <span className="text-[8px] opacity-80">{opt.desc}</span>}
                 </button>
@@ -578,20 +513,18 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
           <section className="space-y-4">
             <div className="flex justify-between items-end">
               <label className="text-[11px] font-bold text-brand-muted uppercase tracking-[0.1em]">2. Muco Cervical</label>
-              <span className="text-[10px] italic text-brand-muted opacity-60">Aparência visual</span>
+              <span className="text-[10px] italic text-brand-muted opacity-60">{isBleeding ? 'Durante o sangramento' : 'Aparência visual'}</span>
             </div>
+            {isBleeding && (
+              <p className="text-[10px] text-brand-terracotta/80 italic font-serif bg-brand-terracotta/5 px-4 py-2 rounded-xl border border-brand-terracotta/10">
+                Durante o sangramento, observe se há muco visível além do fluxo.
+              </p>
+            )}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {mucusOptions.map(opt => (
-                <button
-                  key={opt.id}
-                  onClick={() => setLog({ ...log, mucus: opt.id as any })}
-                  className={cn(
-                    "px-4 py-3 rounded-2xl text-xs font-medium transition-all border text-center flex flex-col gap-1 items-center justify-center min-h-[64px]",
-                    log.mucus === opt.id 
-                      ? "bg-brand-olive text-white border-transparent shadow-md" 
-                      : "bg-white text-brand-muted border-black/[0.05] hover:border-black/10 shadow-sm"
-                  )}
-                >
+                <button key={opt.id} onClick={() => setLog({ ...log, mucus: opt.id as any })}
+                  className={cn("px-4 py-3 rounded-2xl text-xs font-medium transition-all border text-center flex flex-col gap-1 items-center justify-center min-h-[64px]",
+                    log.mucus === opt.id ? "bg-brand-olive text-white border-transparent shadow-md" : "bg-white text-brand-muted border-black/[0.05] hover:border-black/10 shadow-sm")}>
                   <span>{opt.label}</span>
                   {log.mucus === opt.id && <span className="text-[9px] leading-tight opacity-80">{opt.desc}</span>}
                 </button>
@@ -608,16 +541,9 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {sensationOptions.map(opt => (
-                <button
-                  key={opt.id}
-                  onClick={() => setLog({ ...log, sensation: opt.id as any })}
-                  className={cn(
-                    "px-3 py-4 rounded-2xl text-xs font-medium transition-all border text-center flex flex-col gap-1 items-center justify-center min-h-[64px]",
-                    log.sensation === opt.id 
-                      ? "bg-brand-olive text-white border-transparent shadow-md" 
-                      : "bg-white text-brand-muted border-black/[0.05] hover:border-black/10 shadow-sm"
-                  )}
-                >
+                <button key={opt.id} onClick={() => setLog({ ...log, sensation: opt.id as any })}
+                  className={cn("px-3 py-4 rounded-2xl text-xs font-medium transition-all border text-center flex flex-col gap-1 items-center justify-center min-h-[64px]",
+                    log.sensation === opt.id ? "bg-brand-olive text-white border-transparent shadow-md" : "bg-white text-brand-muted border-black/[0.05] hover:border-black/10 shadow-sm")}>
                   <span>{opt.label}</span>
                   {log.sensation === opt.id && <span className="text-[9px] leading-tight opacity-80">{opt.desc}</span>}
                 </button>
@@ -631,40 +557,22 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
             <section className="space-y-4">
               <label className="text-[11px] font-bold text-brand-muted uppercase tracking-[0.1em]">4. Temperatura Basal</label>
               <div className="relative group">
-                <input 
-                  type="number" 
-                  step="0.01"
-                  value={log.temperature || ''}
-                  onChange={(e) => setLog({...log, temperature: parseFloat(e.target.value)})}
-                  placeholder="00.00"
-                  className="w-full bg-transparent text-4xl font-light py-2 border-b-2 border-dashed border-brand-muted/30 focus:border-brand-olive focus:outline-none transition-colors italic text-brand-olive"
-                />
+                <input type="number" step="0.01" value={log.temperature || ''} onChange={(e) => setLog({ ...log, temperature: parseFloat(e.target.value) })} placeholder="00.00"
+                  className="w-full bg-transparent text-4xl font-light py-2 border-b-2 border-dashed border-brand-muted/30 focus:border-brand-olive focus:outline-none transition-colors italic text-brand-olive" />
                 <span className="absolute right-0 bottom-3 text-lg text-brand-muted opacity-50">°C</span>
               </div>
             </section>
           )}
-
           {fields.includes('isPeak') && (
             <section className="group space-y-4">
               <label className="text-[11px] font-bold text-brand-muted uppercase tracking-[0.1em]">5. Ápice & Estado</label>
-              <div 
-                onClick={() => setLog({...log, isPeak: !log.isPeak})}
-                className={cn(
-                  "flex items-center gap-4 p-5 rounded-2xl border transition-all cursor-pointer select-none",
-                  log.isPeak 
-                    ? "bg-brand-olive/5 border-brand-olive/20" 
-                    : "bg-white border-black/[0.05] hover:border-black/10"
-                )}
-              >
-                <div className={cn(
-                  "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
-                  log.isPeak ? "bg-brand-olive border-brand-olive" : "border-black/10"
-                )}>
+              <div onClick={() => setLog({ ...log, isPeak: !log.isPeak })}
+                className={cn("flex items-center gap-4 p-5 rounded-2xl border transition-all cursor-pointer select-none",
+                  log.isPeak ? "bg-brand-olive/5 border-brand-olive/20" : "bg-white border-black/[0.05] hover:border-black/10")}>
+                <div className={cn("w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all", log.isPeak ? "bg-brand-olive border-brand-olive" : "border-black/10")}>
                   {log.isPeak && <div className="w-2.5 h-2.5 bg-white rounded-full" />}
                 </div>
-                <span className={cn("text-xs font-medium tracking-wide", log.isPeak ? "text-brand-olive" : "text-brand-muted")}>
-                  Confirmar Ápice de Fertilidade
-                </span>
+                <span className={cn("text-xs font-medium tracking-wide", log.isPeak ? "text-brand-olive" : "text-brand-muted")}>Confirmar Ápice de Fertilidade</span>
               </div>
             </section>
           )}
@@ -673,12 +581,8 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
         {fields.includes('notes') && (
           <section className="space-y-4">
             <label className="text-[11px] font-bold text-brand-muted uppercase tracking-[0.1em]">6. Notas & Reflexões (Espiritual/Emocional)</label>
-            <textarea
-              value={log.notes || ''}
-              onChange={(e) => setLog({...log, notes: e.target.value})}
-              placeholder="Como você se sente hoje? Houve oração em casal? Algum fator perturbador?"
-              className="w-full h-32 p-6 bg-white rounded-3xl border border-black/5 focus:ring-2 ring-brand-olive/10 focus:outline-none text-sm text-brand-text italic font-serif leading-relaxed"
-            ></textarea>
+            <textarea value={log.notes || ''} onChange={(e) => setLog({ ...log, notes: e.target.value })} placeholder="Como você se sente hoje? Houve oração em casal? Algum fator perturbador?"
+              className="w-full h-32 p-6 bg-white rounded-3xl border border-black/5 focus:ring-2 ring-brand-olive/10 focus:outline-none text-sm text-brand-text italic font-serif leading-relaxed"></textarea>
           </section>
         )}
       </div>
@@ -686,25 +590,18 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
       <div className="flex flex-col gap-4 pt-8 border-t border-black/5">
         <div className="flex gap-4">
           <button onClick={onCancel} className="flex-1 py-5 text-brand-muted font-bold uppercase tracking-widest text-[11px] hover:text-brand-text transition-colors">Cancelar</button>
-          <button 
-            onClick={() => onSave(log)}
-            className="flex-[2] py-5 bg-brand-olive text-white rounded-2xl font-bold uppercase tracking-[0.2em] text-[12px] shadow-xl shadow-brand-olive/10 hover:translate-y-[-1px] transition-all"
-          >
+          <button onClick={() => onSave(log)} className="flex-[2] py-5 bg-brand-olive text-white rounded-2xl font-bold uppercase tracking-[0.2em] text-[12px] shadow-xl shadow-brand-olive/10 hover:translate-y-[-1px] transition-all">
             {existingLog ? 'Atualizar Entrada' : 'Salvar Entrada'}
           </button>
         </div>
-        
         {existingLog && (
           <div className="pt-4 border-t border-dotted border-black/5">
             {!showConfirmDelete ? (
-              <button 
-                onClick={() => setShowConfirmDelete(true)}
-                className="w-full py-4 text-brand-terracotta font-bold uppercase tracking-[0.1em] text-[10px] hover:bg-brand-terracotta/5 rounded-xl transition-all"
-              >
+              <button onClick={() => setShowConfirmDelete(true)} className="w-full py-4 text-brand-terracotta font-bold uppercase tracking-[0.1em] text-[10px] hover:bg-brand-terracotta/5 rounded-xl transition-all">
                 Excluir Registro Permanente
               </button>
             ) : (
-              <div className="flex items-center justify-between p-4 bg-brand-terracotta/5 rounded-2xl animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between p-4 bg-brand-terracotta/5 rounded-2xl">
                 <span className="text-[10px] font-bold text-brand-terracotta uppercase">Tem certeza?</span>
                 <div className="flex gap-4">
                   <button onClick={() => setShowConfirmDelete(false)} className="text-[10px] font-bold text-brand-muted uppercase">Infelizmente não</button>
@@ -719,7 +616,7 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
   );
 }
 
-// REPORTS SECTION
+// REPORTS
 function Reports({ logs, profile }: { logs: DailyLog[], profile: UserProfile }) {
   const chartData = logs.slice(-30).map(log => ({
     ...log,
@@ -729,42 +626,27 @@ function Reports({ logs, profile }: { logs: DailyLog[], profile: UserProfile }) 
   }));
 
   const downloadICS = () => {
-    const icsContent = generateICS(logs);
-    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const blob = new Blob([generateICS(logs)], { type: 'text/calendar;charset=utf-8' });
     const link = document.createElement('a');
     link.href = window.URL.createObjectURL(blob);
     link.setAttribute('download', 'ciclo_gracavida.ics');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
   const downloadCSV = () => {
     const headers = ['Data', 'Temperatura', 'Muco', 'Sensação', 'Sangramento', 'Ápice', 'Notas'];
-    const rows = logs.map(l => [
-      l.date,
-      l.temperature || '',
-      l.mucus,
-      l.sensation,
-      l.bleeding,
-      l.isPeak ? 'Sim' : 'Não',
-      (l.notes || '').replace(/,/g, ';')
-    ]);
-    
-    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const rows = logs.map(l => [l.date, l.temperature || '', l.mucus, l.sensation, l.bleeding, l.isPeak ? 'Sim' : 'Não', (l.notes || '').replace(/,/g, ';')]);
+    const blob = new Blob([[headers, ...rows].map(e => e.join(",")).join("\n")], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.setAttribute('download', 'historico_gracavida.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
   return (
     <div className="space-y-10 pb-20">
       <header>
-        <h2 className="text-3xl font-serif text-brand-text mb-2 animate-in fade-in slide-in-from-left-4 duration-700">Relatórios & Evolução</h2>
+        <h2 className="text-3xl font-serif text-brand-text mb-2">Relatórios & Evolução</h2>
         <p className="text-sm text-brand-muted italic font-serif opacity-80">Análise profunda do seu ciclo e métodos</p>
       </header>
 
@@ -772,75 +654,23 @@ function Reports({ logs, profile }: { logs: DailyLog[], profile: UserProfile }) 
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6">
           <h3 className="text-xs font-bold uppercase tracking-widest text-brand-olive">Gráfico de Evolução (30 dias)</h3>
           <div className="flex flex-wrap gap-3">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-brand-olive" />
-              <span className="text-[9px] font-bold uppercase tracking-tighter text-brand-muted">Temperatura</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-brand-terracotta" />
-              <span className="text-[9px] font-bold uppercase tracking-tighter text-brand-muted">Muco/Aparência</span>
-            </div>
+            <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-brand-olive" /><span className="text-[9px] font-bold uppercase tracking-tighter text-brand-muted">Temperatura</span></div>
+            <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-brand-terracotta" /><span className="text-[9px] font-bold uppercase tracking-tighter text-brand-muted">Muco/Aparência</span></div>
           </div>
         </div>
-
         <div className="h-80 w-full mb-4">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.05)" />
-              <XAxis 
-                dataKey="date" 
-                tick={{fontSize: 9, fill: '#7A7A75'}} 
-                tickFormatter={(str) => format(parseISO(str), 'dd/MM')}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis 
-                yAxisId="left"
-                domain={['dataMin - 0.5', 'dataMax + 0.5']} 
-                tick={{fontSize: 9, fill: '#7A7A75'}}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis 
-                yAxisId="right" 
-                orientation="right" 
-                domain={[0, 5]} 
-                hide
-              />
-              <Tooltip 
-                contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.05)', fontSize: '10px' }}
-                labelFormatter={(v) => format(parseISO(v), 'dd/MM/yyyy')}
-              />
-              <Bar 
-                yAxisId="right" 
-                dataKey="mucusValue" 
-                radius={[4, 4, 0, 0]}
-                barSize={12}
-              >
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={FERTILITY_COLORS[entry.status] || '#eee'} />
-                ))}
+              <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#7A7A75' }} tickFormatter={(str) => format(parseISO(str), 'dd/MM')} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="left" domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fontSize: 9, fill: '#7A7A75' }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="right" orientation="right" domain={[0, 5]} hide />
+              <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.05)', fontSize: '10px' }} labelFormatter={(v) => format(parseISO(v), 'dd/MM/yyyy')} />
+              <Bar yAxisId="right" dataKey="mucusValue" radius={[4, 4, 0, 0]} barSize={12}>
+                {chartData.map((entry, index) => <Cell key={`cell-${index}`} fill={FERTILITY_COLORS[entry.status] || '#eee'} />)}
               </Bar>
-              <Line 
-                yAxisId="left"
-                type="monotone" 
-                dataKey="temp" 
-                stroke="#5A5A40" 
-                strokeWidth={3} 
-                dot={{ r: 4, fill: '#5A5A40', strokeWidth: 0 }} 
-                activeDot={{ r: 6 }}
-                connectNulls
-              />
-              {chartData.map((d, i) => d.isPeak && (
-                <ReferenceLine 
-                  key={`peak-${i}`}
-                  yAxisId="left"
-                  x={d.date} 
-                  stroke="rgba(198, 123, 92, 0.4)" 
-                  strokeDasharray="3 3"
-                  label={{ position: 'top', value: 'ÁPICE', fontSize: 8, fill: '#C67B5C', fontWeight: 'bold' }}
-                />
-              ))}
+              <Line yAxisId="left" type="monotone" dataKey="temp" stroke="#5A5A40" strokeWidth={3} dot={{ r: 4, fill: '#5A5A40', strokeWidth: 0 }} activeDot={{ r: 6 }} connectNulls />
+              {chartData.map((d, i) => d.isPeak && <ReferenceLine key={`peak-${i}`} yAxisId="left" x={d.date} stroke="rgba(198, 123, 92, 0.4)" strokeDasharray="3 3" label={{ position: 'top', value: 'ÁPICE', fontSize: 8, fill: '#C67B5C', fontWeight: 'bold' }} />)}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -849,9 +679,7 @@ function Reports({ logs, profile }: { logs: DailyLog[], profile: UserProfile }) 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <section className="bg-white p-8 rounded-[40px] shadow-soft border border-brand-olive/5">
           <div className="flex items-center gap-3 mb-8">
-            <div className="p-2 bg-brand-olive/5 text-brand-olive rounded-xl">
-              <BarChart3 size={18} />
-            </div>
+            <div className="p-2 bg-brand-olive/5 text-brand-olive rounded-xl"><BarChart3 size={18} /></div>
             <h3 className="text-sm font-bold uppercase tracking-widest text-brand-text">Histórico de Métodos</h3>
           </div>
           <div className="space-y-6">
@@ -866,9 +694,7 @@ function Reports({ logs, profile }: { logs: DailyLog[], profile: UserProfile }) 
                       <p className="text-[10px] text-brand-muted italic mt-0.5">Iniciado em {format(parseISO(h.startDate), 'dd/MM/yyyy')}</p>
                     </div>
                   </div>
-                  {i === 0 && (
-                    <span className="px-2 py-1 bg-brand-olive text-white rounded-md text-[8px] font-bold uppercase tracking-tighter">Atual</span>
-                  )}
+                  {i === 0 && <span className="px-2 py-1 bg-brand-olive text-white rounded-md text-[8px] font-bold uppercase tracking-tighter">Atual</span>}
                 </div>
               );
             })}
@@ -876,42 +702,19 @@ function Reports({ logs, profile }: { logs: DailyLog[], profile: UserProfile }) 
         </section>
 
         <section className="bg-brand-olive p-10 rounded-[40px] shadow-xl text-white relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform">
-             <BarChart3 size={120} />
-          </div>
+          <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform"><BarChart3 size={120} /></div>
           <h3 className="text-xs font-bold uppercase tracking-[0.2em] opacity-60 mb-8">Exportação & Integração</h3>
-          
           <div className="grid grid-cols-1 gap-4 relative z-10">
-            <button 
-              onClick={downloadICS}
-              className="flex items-center justify-between p-5 bg-white/10 rounded-2xl hover:bg-white/20 transition-all border border-white/5"
-            >
-              <div className="text-left">
-                <p className="text-sm font-bold">Calendário Personalizado</p>
-                <p className="text-[10px] opacity-60 mt-1">Sincronizar com Smartphone/PC</p>
-              </div>
+            <button onClick={downloadICS} className="flex items-center justify-between p-5 bg-white/10 rounded-2xl hover:bg-white/20 transition-all border border-white/5">
+              <div className="text-left"><p className="text-sm font-bold">Calendário Personalizado</p><p className="text-[10px] opacity-60 mt-1">Sincronizar com Smartphone/PC</p></div>
               <CalendarIcon size={20} />
             </button>
-
-            <button 
-              onClick={downloadCSV}
-              className="flex items-center justify-between p-5 bg-white/10 rounded-2xl hover:bg-white/20 transition-all border border-white/5"
-            >
-              <div className="text-left">
-                <p className="text-sm font-bold">Base de Dados (CSV)</p>
-                <p className="text-[10px] opacity-60 mt-1">Exportar histórico completo</p>
-              </div>
+            <button onClick={downloadCSV} className="flex items-center justify-between p-5 bg-white/10 rounded-2xl hover:bg-white/20 transition-all border border-white/5">
+              <div className="text-left"><p className="text-sm font-bold">Base de Dados (CSV)</p><p className="text-[10px] opacity-60 mt-1">Exportar histórico completo</p></div>
               <Droplets size={20} />
             </button>
-
-            <button 
-              onClick={() => window.print()}
-              className="flex items-center justify-between p-5 bg-white text-brand-olive rounded-2xl hover:bg-brand-cream transition-all shadow-lg"
-            >
-              <div className="text-left">
-                <p className="text-sm font-bold">Relatório PDF</p>
-                <p className="text-[10px] opacity-60 mt-1">Preparar para profissional de saúde</p>
-              </div>
+            <button onClick={() => window.print()} className="flex items-center justify-between p-5 bg-white text-brand-olive rounded-2xl hover:bg-brand-cream transition-all shadow-lg">
+              <div className="text-left"><p className="text-sm font-bold">Relatório PDF</p><p className="text-[10px] opacity-60 mt-1">Preparar para profissional de saúde</p></div>
               <BookOpen size={20} />
             </button>
           </div>
@@ -921,7 +724,228 @@ function Reports({ logs, profile }: { logs: DailyLog[], profile: UserProfile }) 
   );
 }
 
-// EDUCATION SECTION
+// =====================================================
+// FIX 4-10: ABA APRENDER — Acordeão + Módulos Visuais
+// =====================================================
+
+function AccordionItem({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={cn("rounded-2xl border transition-all overflow-hidden", open ? "border-brand-olive/20 bg-brand-olive/[0.03]" : "border-black/[0.05] bg-white")}>
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-6 py-5 text-left">
+        <span className="flex items-center gap-3 text-sm font-bold text-brand-text">
+          <span className="text-lg">{icon}</span>{title}
+        </span>
+        <ChevronDown size={16} className={cn("text-brand-muted transition-transform duration-300", open ? "rotate-180 text-brand-olive" : "")} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25 }} className="overflow-hidden">
+            <div className="px-6 pb-6 text-sm text-brand-text/70 font-serif italic leading-relaxed space-y-3">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function GracaVidaContent({ method }: { method: typeof METHODS[0] }) {
+  const [showStepByStep, setShowStepByStep] = useState(false);
+  const [stepDay, setStepDay] = useState(0);
+
+  const tutorialDays = [
+    { title: "Dia 1 — Como Iniciar", desc: "O Dia 1 é o primeiro dia de sangramento verdadeiro (não apenas manchas). Registre no app o fluxo e comece a observar. Ore com seu esposo e peçam discernimento para essa nova jornada." },
+    { title: "Dia 2 — Observando o Fluxo", desc: "Continue registrando o sangramento. Durante a menstruação, observe se há muco visível além do fluxo. As opções 'Escasso/inexistente', 'Seco' e 'Pouco visível' estão disponíveis no registro." },
+    { title: "Dia 3 — Como Medir a Temperatura", desc: "Antes de levantar, antes de falar e após pelo menos 5h de sono, coloque o termômetro sob a língua. Aguarde o sinal sonoro. Anote a temperatura no app logo em seguida." },
+    { title: "Dia 4 — Observando o Muco", desc: "Após o fluxo cessar, comece a observar o muco ao usar o banheiro. Passe papel higiênico branco de frente para trás. Note cor, textura e se estica entre os dedos." },
+    { title: "Dia 5 — Sensação Vulvar", desc: "Ao longo do dia, perceba a sensação 'por fora' da vulva: seca, úmida ou escorregadia? Esta sensação é um dos sinais mais importantes e não depende de ver o muco." },
+    { title: "Dia 6 em diante — Constância", desc: "Repita todos os dias: temperatura ao acordar, muco e sensação ao longo do dia. Registre sempre o sinal mais fértil observado. Com o tempo, você reconhecerá seu padrão." },
+  ];
+
+  if (showStepByStep) {
+    return (
+      <div className="space-y-6">
+        <button onClick={() => setShowStepByStep(false)} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline">
+          <ChevronLeft size={14} /> Voltar
+        </button>
+        <div className="bg-white p-8 rounded-[32px] shadow-soft border border-brand-olive/5">
+          <h3 className="text-xl font-serif text-brand-olive italic mb-1">📘 Aprenda Passo a Passo</h3>
+          <p className="text-xs text-brand-muted uppercase tracking-widest font-bold mb-8">Tutorial Progressivo</p>
+          <div className="flex gap-1 mb-8 flex-wrap">
+            {tutorialDays.map((_, i) => (
+              <button key={i} onClick={() => setStepDay(i)} className={cn("h-2 rounded-full transition-all", stepDay === i ? "w-8 bg-brand-olive" : "w-2 bg-brand-olive/20")} />
+            ))}
+          </div>
+          <AnimatePresence mode="wait">
+            <motion.div key={stepDay} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-4">
+              <h4 className="text-lg font-serif text-brand-text italic">{tutorialDays[stepDay].title}</h4>
+              <p className="text-[15px] text-brand-text/70 leading-relaxed font-serif italic">{tutorialDays[stepDay].desc}</p>
+            </motion.div>
+          </AnimatePresence>
+          <div className="flex gap-4 mt-10">
+            <button disabled={stepDay === 0} onClick={() => setStepDay(s => s - 1)} className="flex-1 py-4 rounded-xl border border-black/10 text-xs font-bold uppercase tracking-widest text-brand-muted disabled:opacity-30">Anterior</button>
+            <button disabled={stepDay === tutorialDays.length - 1} onClick={() => setStepDay(s => s + 1)} className="flex-[2] py-4 rounded-xl bg-brand-olive text-white text-xs font-bold uppercase tracking-widest disabled:opacity-40">Próximo</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col items-center text-center mb-2">
+        <span className="text-[10px] uppercase tracking-widest text-brand-muted font-bold mb-2">Fundamentado por</span>
+        <h3 className="text-2xl font-serif text-brand-olive italic leading-tight">{method.name}</h3>
+        <p className="text-xs text-brand-muted font-bold uppercase tracking-widest mt-1">{method.author}</p>
+        <div className="mt-4 px-4 py-1.5 bg-brand-olive/5 rounded-full border border-brand-olive/10">
+          <span className="text-[10px] font-bold text-brand-olive uppercase tracking-widest">Eficácia: {method.accuracy}</span>
+        </div>
+      </div>
+
+      <div className="bg-brand-cream/50 border border-brand-olive/10 p-6 rounded-2xl">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-muted mb-2">Nossa História</p>
+        <p className="text-[15px] text-brand-text/70 leading-relaxed font-serif italic">{method.history}</p>
+      </div>
+
+      <div>
+        <h4 className="text-[11px] font-bold uppercase tracking-widest text-brand-text mb-1 border-b border-black/5 pb-2 flex items-center gap-2">
+          <span>🌿</span> Como Funciona o Método
+        </h4>
+        <p className="text-[13px] text-brand-text/60 italic font-serif leading-relaxed mt-3 mb-4">
+          O Método Graça & Vida integra observação do ciclo feminino, acompanhamento dos sinais de fertilidade e discernimento do casal, promovendo uma vivência responsável e aberta à vida.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <AccordionItem icon="🌡️" title="Temperatura Basal">
+          <div className="space-y-3">
+            <div><p className="font-bold not-italic text-brand-text/80 text-[11px] uppercase tracking-wider mb-1">O que é</p><p>Temperatura do corpo em repouso absoluto, medida ao acordar.</p></div>
+            <div>
+              <p className="font-bold not-italic text-brand-text/80 text-[11px] uppercase tracking-wider mb-1">Como medir</p>
+              <ul className="space-y-1 list-none"><li>• Antes de levantar</li><li>• Antes de falar</li><li>• Após pelo menos 5h de sono</li><li>• Sempre no mesmo horário</li></ul>
+            </div>
+            <div>
+              <p className="font-bold not-italic text-brand-text/80 text-[11px] uppercase tracking-wider mb-1">Evolução normal</p>
+              <ul className="space-y-1 list-none"><li>• Antes da ovulação: mais baixa</li><li>• Após ovulação: sobe entre 0,2°C e 0,5°C</li><li>• Antes da menstruação: pode cair novamente</li></ul>
+            </div>
+            <div className="bg-brand-terracotta/5 border border-brand-terracotta/10 rounded-xl p-3 not-italic">
+              <p className="font-bold text-brand-terracotta text-[10px] uppercase tracking-wider mb-1">Atenção</p>
+              <p className="text-brand-text/70">Febre, álcool, insônia e estresse podem alterar os resultados.</p>
+            </div>
+          </div>
+        </AccordionItem>
+
+        <AccordionItem icon="💧" title="Muco Cervical">
+          <div className="space-y-3">
+            <div>
+              <p className="font-bold not-italic text-brand-text/80 text-[11px] uppercase tracking-wider mb-1">O que observar</p>
+              <ul className="space-y-1 list-none"><li>• Sensação vulvar</li><li>• Papel higiênico</li><li>• Secreção visível</li></ul>
+            </div>
+            <div>
+              <p className="font-bold not-italic text-brand-text/80 text-[11px] uppercase tracking-wider mb-2">Tipos de muco</p>
+              <div className="space-y-2">
+                {[{ label: 'Seco', desc: 'Baixa fertilidade relativa.' }, { label: 'Pegajoso', desc: 'Possível início fértil.' }, { label: 'Cremoso', desc: 'Fertilidade aumentando.' }, { label: 'Aquoso', desc: 'Alta fertilidade.' }, { label: 'Clara de ovo', desc: 'Pico fértil provável.' }].map(t => (
+                  <div key={t.label} className="flex justify-between items-center p-2 bg-white rounded-lg border border-black/5">
+                    <span className="font-bold not-italic text-brand-text/80 text-xs">{t.label}</span>
+                    <span className="text-[10px] text-brand-muted">{t.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </AccordionItem>
+
+        <AccordionItem icon="👩" title="Sensação Vulvar">
+          <div className="space-y-3">
+            <div>
+              <p className="font-bold not-italic text-brand-text/80 text-[11px] uppercase tracking-wider mb-1">Sensações comuns</p>
+              <ul className="space-y-1 list-none"><li>• Seca → infertilidade relativa</li><li>• Úmida → fertilidade crescente</li><li>• Escorregadia → alta fertilidade</li></ul>
+            </div>
+            <div><p className="font-bold not-italic text-brand-text/80 text-[11px] uppercase tracking-wider mb-1">Como observar</p><p>Perceber a sensação ao caminhar e durante o dia.</p></div>
+          </div>
+        </AccordionItem>
+
+        <AccordionItem icon="📅" title="Como Marcar o Ciclo">
+          <div className="space-y-2">
+            <p><strong className="not-italic text-brand-text/80">Dia 1:</strong> Primeiro dia de sangramento verdadeiro.</p>
+            <p className="font-bold not-italic text-brand-text/80 text-[11px] uppercase tracking-wider mt-2 mb-1">Registrar diariamente:</p>
+            <ul className="space-y-1 list-none"><li>• Temperatura</li><li>• Muco</li><li>• Sensação</li><li>• Sangramento</li><li>• Sintomas</li></ul>
+          </div>
+        </AccordionItem>
+
+        <AccordionItem icon="❤️" title="Discernimento do Casal">
+          <div className="space-y-2">
+            <p>O Método Graça & Vida une ciência e espiritualidade. O casal é convidado a:</p>
+            <ul className="space-y-1 list-none"><li>• Manter diálogo aberto e amoroso</li><li>• Agir com responsabilidade mútua</li><li>• Orar juntos no momento do registro</li><li>• Acolher com abertura os planos de Deus</li></ul>
+          </div>
+        </AccordionItem>
+      </div>
+
+      {/* Ciclos regulares / irregulares */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white p-6 rounded-2xl border border-black/[0.05] shadow-soft space-y-2">
+          <h5 className="text-[10px] font-bold uppercase tracking-widest text-brand-olive">📈 Ciclos Regulares</h5>
+          <p className="text-xs text-brand-text/60 italic leading-relaxed font-serif">Ovulação costuma ocorrer entre 12º e 16º dia. Confirmar sempre pelos sinais biológicos.</p>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-black/[0.05] shadow-soft space-y-2">
+          <h5 className="text-[10px] font-bold uppercase tracking-widest text-brand-olive">🔄 Ciclos Irregulares</h5>
+          <p className="text-xs text-brand-text/60 italic leading-relaxed font-serif">Não prever apenas por calendário. Priorizar observação diária do muco e temperatura.</p>
+        </div>
+      </div>
+
+      {/* Dicas práticas em cards visuais */}
+      <div>
+        <h4 className="text-[11px] font-bold uppercase tracking-widest text-brand-text mb-4 border-b border-black/5 pb-2">💡 Dicas Práticas Importantes</h4>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { icon: '🌡️', title: 'Temperatura', desc: 'Use termômetro com duas casas decimais.' },
+            { icon: '⏰', title: 'Horário', desc: 'Meça sempre em horário parecido.' },
+            { icon: '🛌', title: 'Sono', desc: 'Durma pelo menos 5h contínuas antes.' },
+            { icon: '💧', title: 'Muco', desc: 'Observe várias vezes ao dia.' },
+            { icon: '👩', title: 'Sensação', desc: 'A lubrificação é um sinal essencial.' },
+            { icon: '⚠️', title: 'Atenção', desc: 'Estresse e febre alteram o ciclo.' },
+            { icon: '📖', title: 'Constância', desc: 'Registre os sinais todos os dias.' },
+            { icon: '❤️', title: 'Prudência', desc: 'Na dúvida, considere-se fértil.' },
+          ].map(tip => (
+            <div key={tip.title} className="bg-white p-4 rounded-2xl border border-black/[0.04] shadow-soft flex flex-col gap-1.5">
+              <span className="text-xl">{tip.icon}</span>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-brand-olive">{tip.title}</p>
+              <p className="text-[10px] text-brand-muted font-sans italic leading-tight">{tip.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Interpretando os sinais */}
+      <div>
+        <h4 className="text-[11px] font-bold uppercase tracking-widest text-brand-text mb-4 border-b border-black/5 pb-2">🎨 Interpretando os Sinais</h4>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { color: '#9BB694', label: 'Baixa fertilidade relativa' },
+            { color: '#F4D06F', label: 'Fertilidade possível' },
+            { color: '#E08C8C', label: 'Alta fertilidade' },
+            { color: '#81A4CD', label: 'Pós-ovulatório provável' },
+          ].map(item => (
+            <div key={item.label} className="flex flex-col items-center gap-2 p-4 bg-white rounded-2xl border border-black/[0.04] shadow-soft text-center">
+              <div className="w-8 h-8 rounded-full" style={{ backgroundColor: item.color }} />
+              <p className="text-[10px] text-brand-text/70 font-sans leading-tight">{item.label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Botão passo a passo */}
+      <button
+        onClick={() => setShowStepByStep(true)}
+        className="w-full py-5 bg-brand-olive text-white rounded-2xl font-bold uppercase tracking-[0.2em] text-[12px] shadow-xl shadow-brand-olive/10 hover:translate-y-[-1px] transition-all flex items-center justify-center gap-3"
+      >
+        <BookOpen size={18} />
+        📘 Aprender Passo a Passo
+      </button>
+    </div>
+  );
+}
+
 function Education() {
   const [selectedMethod, setSelectedMethod] = useState(METHODS[0]);
   const [showDoctrine, setShowDoctrine] = useState(false);
@@ -930,24 +954,17 @@ function Education() {
   if (showDoctrine) {
     return (
       <div className="space-y-6">
-        <button 
-          onClick={() => setShowDoctrine(false)}
-          className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline mb-4"
-        >
+        <button onClick={() => setShowDoctrine(false)} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline mb-4">
           <ChevronLeft size={16} /> Voltar para Métodos
         </button>
         <Doctrine />
       </div>
     );
   }
-
   if (showSimulator) {
     return (
       <div className="space-y-6">
-        <button 
-          onClick={() => setShowSimulator(false)}
-          className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline mb-4"
-        >
+        <button onClick={() => setShowSimulator(false)} className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline mb-4">
           <ChevronLeft size={16} /> Voltar para Aprender
         </button>
         <CycleSimulator />
@@ -959,21 +976,15 @@ function Education() {
     <div className="space-y-10 pb-20">
       <header className="flex justify-between items-start">
         <div>
-          <h2 className="text-3xl font-serif text-brand-text mb-2 animate-in fade-in slide-in-from-left-4 duration-700">Sabedoria e Ciência</h2>
+          <h2 className="text-3xl font-serif text-brand-text mb-2">Sabedoria e Ciência</h2>
           <p className="text-sm text-brand-muted italic font-serif opacity-80">Compreenda a linguagem do seu corpo</p>
         </div>
         <div className="flex gap-2">
-          <button 
-            onClick={() => setShowSimulator(true)}
-            className="p-4 bg-brand-cream/50 border border-brand-olive/10 shadow-soft rounded-2xl flex flex-col items-center gap-1 group"
-          >
+          <button onClick={() => setShowSimulator(true)} className="p-4 bg-brand-cream/50 border border-brand-olive/10 shadow-soft rounded-2xl flex flex-col items-center gap-1 group">
             <BarChart3 size={20} className="text-brand-terracotta group-hover:scale-110 transition-transform" />
             <span className="text-[9px] font-bold uppercase tracking-widest text-brand-muted">Simulador</span>
           </button>
-          <button 
-            onClick={() => setShowDoctrine(true)}
-            className="p-4 bg-white border border-brand-olive/5 shadow-soft rounded-2xl flex flex-col items-center gap-1 group"
-          >
+          <button onClick={() => setShowDoctrine(true)} className="p-4 bg-white border border-brand-olive/5 shadow-soft rounded-2xl flex flex-col items-center gap-1 group">
             <ShieldCheck size={20} className="text-brand-olive group-hover:scale-110 transition-transform" />
             <span className="text-[9px] font-bold uppercase tracking-widest text-brand-muted">Doutrina</span>
           </button>
@@ -982,92 +993,62 @@ function Education() {
 
       <div className="flex gap-3 overflow-x-auto pb-4 -mx-2 px-2 scrollbar-none scroll-smooth">
         {METHODS.map(m => (
-          <button
-            key={m.id}
-            onClick={() => setSelectedMethod(m)}
-            className={cn(
-              "px-5 py-2.5 rounded-full text-[10px] font-bold whitespace-nowrap transition-all uppercase tracking-[0.15em] border",
-              selectedMethod.id === m.id 
-                ? "bg-brand-olive text-white border-transparent shadow-md" 
-                : "bg-white text-brand-muted border-black/[0.05] hover:border-black/10"
-            )}
-          >
+          <button key={m.id} onClick={() => setSelectedMethod(m)}
+            className={cn("px-5 py-2.5 rounded-full text-[10px] font-bold whitespace-nowrap transition-all uppercase tracking-[0.15em] border",
+              selectedMethod.id === m.id ? "bg-brand-olive text-white border-transparent shadow-md" : "bg-white text-brand-muted border-black/[0.05] hover:border-black/10")}>
             {m.name}
           </button>
         ))}
       </div>
 
       <AnimatePresence mode="wait">
-        <motion.div
-          key={selectedMethod.id}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          className="bg-white p-10 rounded-[40px] shadow-soft border border-brand-olive/5"
-        >
-          <div className="mb-10 flex flex-col items-center text-center">
-            <span className="text-[10px] uppercase tracking-widest text-brand-muted font-bold mb-2">Fundamentado por</span>
-            <h3 className="text-2xl font-serif text-brand-olive italic leading-tight">{selectedMethod.name}</h3>
-            <p className="text-xs text-brand-muted font-bold uppercase tracking-widest mt-1">{selectedMethod.author}</p>
-            <div className="mt-4 px-4 py-1.5 bg-brand-olive/5 rounded-full border border-brand-olive/10">
-               <span className="text-[10px] font-bold text-brand-olive uppercase tracking-widest">Eficácia: {selectedMethod.accuracy}</span>
+        <motion.div key={selectedMethod.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="bg-white p-10 rounded-[40px] shadow-soft border border-brand-olive/5">
+          {selectedMethod.id === 'gracavida' ? (
+            <GracaVidaContent method={selectedMethod} />
+          ) : (
+            <div className="space-y-10 max-w-2xl mx-auto">
+              <div className="mb-10 flex flex-col items-center text-center">
+                <span className="text-[10px] uppercase tracking-widest text-brand-muted font-bold mb-2">Fundamentado por</span>
+                <h3 className="text-2xl font-serif text-brand-olive italic leading-tight">{selectedMethod.name}</h3>
+                <p className="text-xs text-brand-muted font-bold uppercase tracking-widest mt-1">{selectedMethod.author}</p>
+                <div className="mt-4 px-4 py-1.5 bg-brand-olive/5 rounded-full border border-brand-olive/10">
+                  <span className="text-[10px] font-bold text-brand-olive uppercase tracking-widest">Eficácia: {selectedMethod.accuracy}</span>
+                </div>
+              </div>
+              <section>
+                <h4 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-brand-text mb-4 border-b border-black/5 pb-2"><Info size={14} className="text-brand-terracotta" /> Nossa História</h4>
+                <p className="text-[15px] text-brand-text/70 leading-relaxed font-serif italic">{selectedMethod.history}</p>
+              </section>
+              <section>
+                <h4 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-brand-text mb-4 border-b border-black/5 pb-2"><BookOpen size={14} className="text-brand-terracotta" /> Como fazer corretamente</h4>
+                <p className="text-[15px] text-brand-text/70 leading-relaxed font-serif italic mb-6">{selectedMethod.description}</p>
+                <ul className="space-y-6">
+                  {selectedMethod.steps.map((s, i) => (
+                    <li key={i} className="flex gap-4 text-sm text-brand-text/80 leading-relaxed italic">
+                      <span className="text-brand-terracotta font-serif font-bold text-lg">{i + 1}.</span>
+                      <span className="pt-0.5">{s}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+              <section className="grid grid-cols-1 md:grid-cols-2 gap-8 bg-brand-page/30 p-8 rounded-3xl border border-black/5">
+                <div><h5 className="text-[10px] font-bold uppercase tracking-widest text-brand-olive mb-3">Ciclos Regulares</h5><p className="text-xs text-brand-text/60 italic leading-relaxed font-serif">{selectedMethod.regularCycleAdvice}</p></div>
+                <div><h5 className="text-[10px] font-bold uppercase tracking-widest text-brand-olive mb-3">Ciclos Irregulares</h5><p className="text-xs text-brand-text/60 italic leading-relaxed font-serif">{selectedMethod.irregularCycleAdvice}</p></div>
+              </section>
+              <section>
+                <h4 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-brand-text mb-4 border-b border-black/5 pb-2"><Heart size={14} className="text-brand-terracotta" /> Dicas Práticas</h4>
+                <div className="grid grid-cols-1 gap-3">
+                  {selectedMethod.tips.map((tip, i) => <div key={i} className="p-4 bg-brand-cream/40 rounded-2xl border border-brand-olive/5 text-xs text-brand-text/70 font-serif italic">{tip}</div>)}
+                </div>
+              </section>
             </div>
-          </div>
-
-          <div className="space-y-10 max-w-2xl mx-auto">
-            <section>
-              <h4 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-brand-text mb-4 border-b border-black/5 pb-2">
-                <Info size={14} className="text-brand-terracotta" /> Nossa História
-              </h4>
-              <p className="text-[15px] text-brand-text/70 leading-relaxed font-serif italic">{selectedMethod.history}</p>
-            </section>
-
-            <section>
-              <h4 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-brand-text mb-4 border-b border-black/5 pb-2">
-                <BookOpen size={14} className="text-brand-terracotta" /> Como fazer corretamente
-              </h4>
-              <p className="text-[15px] text-brand-text/70 leading-relaxed font-serif italic mb-6">{selectedMethod.description}</p>
-              <ul className="space-y-6">
-                {selectedMethod.steps.map((s, i) => (
-                  <li key={i} className="flex gap-4 text-sm text-brand-text/80 leading-relaxed italic">
-                    <span className="text-brand-terracotta font-serif font-bold text-lg">{i + 1}.</span>
-                    <span className="pt-0.5">{s}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="grid grid-cols-1 md:grid-cols-2 gap-8 bg-brand-page/30 p-8 rounded-3xl border border-black/5">
-              <div>
-                <h5 className="text-[10px] font-bold uppercase tracking-widest text-brand-olive mb-3">Ciclos Regulares</h5>
-                <p className="text-xs text-brand-text/60 italic leading-relaxed font-serif">{selectedMethod.regularCycleAdvice}</p>
-              </div>
-              <div>
-                <h5 className="text-[10px] font-bold uppercase tracking-widest text-brand-olive mb-3">Ciclos Irregulares</h5>
-                <p className="text-xs text-brand-text/60 italic leading-relaxed font-serif">{selectedMethod.irregularCycleAdvice}</p>
-              </div>
-            </section>
-
-            <section>
-              <h4 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-brand-text mb-4 border-b border-black/5 pb-2">
-                <Heart size={14} className="text-brand-terracotta" /> Dicas Práticas
-              </h4>
-              <div className="grid grid-cols-1 gap-3">
-                {selectedMethod.tips.map((tip, i) => (
-                  <div key={i} className="p-4 bg-brand-cream/40 rounded-2xl border border-brand-olive/5 text-xs text-brand-text/70 font-serif italic">
-                    {tip}
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
+          )}
         </motion.div>
       </AnimatePresence>
     </div>
   );
 }
 
-// CYCLE SIMULATOR SECTION
 function CycleSimulator() {
   const [scenario, setScenario] = useState<'regular' | 'irregular' | 'stress'>('regular');
   const [simulatedLogs, setSimulatedLogs] = useState<DailyLog[]>([]);
@@ -1075,249 +1056,147 @@ function CycleSimulator() {
 
   const scenarios = {
     regular: {
-      name: 'Ciclo Regular',
-      desc: '28 dias com ovulação no dia 14. Padrão clássico de livro-texto.',
+      name: 'Ciclo Regular', desc: '28 dias com ovulação no dia 14. Padrão clássico de livro-texto.',
       generate: () => {
         const logs: DailyLog[] = [];
         const baseDate = new Date();
         for (let i = 0; i < 28; i++) {
           const date = addDays(baseDate, i).toISOString().split('T')[0];
-          let mucus: string = 'none';
-          let sensation: string = 'dry';
-          let bleeding: string = 'none';
+          let mucus = 'none', sensation = 'dry', bleeding = 'none';
           let temp = 36.2 + (Math.random() * 0.1);
-
           if (i < 5) bleeding = i === 0 ? 'heavy' : (i < 3 ? 'medium' : 'light');
-          else if (i >= 8 && i <= 13) {
-            mucus = i < 11 ? 'sticky' : (i < 13 ? 'watery' : 'eggwhite');
-            sensation = i < 11 ? 'moist' : 'slippery';
-          } else if (i >= 14) {
-             temp += 0.4 + (Math.random() * 0.1);
-          }
-
-          logs.push({
-            date, mucus: mucus as any, sensation: sensation as any, bleeding: bleeding as any,
-            temperature: parseFloat(temp.toFixed(2)), isPeak: i === 13, notes: `Simulação dia ${i+1}`
-          });
+          else if (i >= 8 && i <= 13) { mucus = i < 11 ? 'sticky' : (i < 13 ? 'watery' : 'eggwhite'); sensation = i < 11 ? 'moist' : 'slippery'; }
+          else if (i >= 14) temp += 0.4 + (Math.random() * 0.1);
+          logs.push({ date, mucus: mucus as any, sensation: sensation as any, bleeding: bleeding as any, temperature: parseFloat(temp.toFixed(2)), isPeak: i === 13, notes: `Simulação dia ${i + 1}` });
         }
         return logs;
       }
     },
     irregular: {
-      name: 'Ciclo Longo/Irregular',
-      desc: '35 dias. A ovulação ocorre mais tarde (dia 21). Comum em situações de variação hormonal natural.',
+      name: 'Ciclo Longo/Irregular', desc: '35 dias. Ovulação mais tarde (dia 21). Variação hormonal natural.',
       generate: () => {
         const logs: DailyLog[] = [];
         const baseDate = new Date();
         for (let i = 0; i < 35; i++) {
           const date = addDays(baseDate, i).toISOString().split('T')[0];
-          let mucus: string = 'none';
-          let sensation: string = 'dry';
-          let bleeding: string = 'none';
+          let mucus = 'none', sensation = 'dry', bleeding = 'none';
           let temp = 36.1 + (Math.random() * 0.1);
-
           if (i < 5) bleeding = 'medium';
-          else if (i >= 15 && i <= 20) {
-            mucus = i < 18 ? 'sticky' : 'eggwhite';
-            sensation = 'slippery';
-          } else if (i >= 21) {
-            temp += 0.5;
-          }
-
-          logs.push({
-            date, mucus: mucus as any, sensation: sensation as any, bleeding: bleeding as any,
-            temperature: parseFloat(temp.toFixed(2)), isPeak: i === 20, notes: `Simulação dia ${i+1}`
-          });
+          else if (i >= 15 && i <= 20) { mucus = i < 18 ? 'sticky' : 'eggwhite'; sensation = 'slippery'; }
+          else if (i >= 21) temp += 0.5;
+          logs.push({ date, mucus: mucus as any, sensation: sensation as any, bleeding: bleeding as any, temperature: parseFloat(temp.toFixed(2)), isPeak: i === 20, notes: `Simulação dia ${i + 1}` });
         }
         return logs;
       }
     },
     stress: {
-      name: 'Impacto de Estresse',
-      desc: 'Ovulação atrasada devido ao estresse. Mostra como o corpo prioriza a sobrevivência sobre a reprodução.',
+      name: 'Impacto de Estresse', desc: 'Ovulação atrasada pelo estresse. O corpo prioriza sobrevivência.',
       generate: () => {
         const logs: DailyLog[] = [];
         const baseDate = new Date();
         for (let i = 0; i < 32; i++) {
           const date = addDays(baseDate, i).toISOString().split('T')[0];
-          let mucus: string = 'none';
-          let sensation: string = 'dry';
+          let mucus = 'none', sensation = 'dry';
           let temp = 36.3;
-
-          if (i < 15) {
-             // Long flat phase due to stress
-             mucus = 'none';
-          } else if (i >= 18 && i <= 22) {
-             mucus = 'eggwhite';
-             sensation = 'slippery';
-          } else if (i >= 23) {
-             temp += 0.4;
-          }
-
-          logs.push({
-            date, mucus: mucus as any, sensation: sensation as any, bleeding: 'none',
-            temperature: parseFloat(temp.toFixed(2)), isPeak: i === 22, notes: `Estresse até o dia 15`
-          });
+          if (i >= 18 && i <= 22) { mucus = 'eggwhite'; sensation = 'slippery'; }
+          else if (i >= 23) temp += 0.4;
+          logs.push({ date, mucus: mucus as any, sensation: sensation as any, bleeding: 'none', temperature: parseFloat(temp.toFixed(2)), isPeak: i === 22, notes: `Estresse até o dia 15` });
         }
         return logs;
       }
     }
   };
 
-  useEffect(() => {
-    setSimulatedLogs(scenarios[scenario].generate());
-    setCurrentStep(0);
-  }, [scenario]);
-
+  useEffect(() => { setSimulatedLogs(scenarios[scenario].generate()); setCurrentStep(0); }, [scenario]);
   const currentLog = simulatedLogs[currentStep];
 
   return (
     <div className="space-y-8 pb-20">
       <header>
-        <h2 className="text-3xl font-serif text-brand-text mb-2 animate-in fade-in slide-in-from-left-4 duration-700">Simulador de Ciclo</h2>
+        <h2 className="text-3xl font-serif text-brand-text mb-2">Simulador de Ciclo</h2>
         <p className="text-sm text-brand-muted italic font-serif">Aprenda a interpretar sinais em diferentes cenários</p>
       </header>
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {(Object.keys(scenarios) as Array<keyof typeof scenarios>).map(s => (
-          <button
-            key={s}
-            onClick={() => setScenario(s)}
-            className={cn(
-              "p-6 rounded-3xl border transition-all text-left space-y-2",
-              scenario === s 
-                ? "bg-brand-olive text-white border-transparent shadow-lg" 
-                : "bg-white text-brand-muted border-black/5 hover:border-brand-olive/20 shadow-soft"
-            )}
-          >
+          <button key={s} onClick={() => setScenario(s)}
+            className={cn("p-6 rounded-3xl border transition-all text-left space-y-2", scenario === s ? "bg-brand-olive text-white border-transparent shadow-lg" : "bg-white text-brand-muted border-black/5 hover:border-brand-olive/20 shadow-soft")}>
             <p className="text-xs font-bold uppercase tracking-widest">{scenarios[s].name}</p>
             <p className={cn("text-[10px] leading-relaxed", scenario === s ? "opacity-90" : "opacity-60")}>{scenarios[s].desc}</p>
           </button>
         ))}
       </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         <div className="lg:col-span-2 bg-white p-8 rounded-[40px] shadow-soft border border-black/5 space-y-10">
           <div className="flex justify-between items-center bg-brand-page/50 p-6 rounded-2xl">
-            <button 
-              disabled={currentStep === 0}
-              onClick={() => setCurrentStep(prev => prev - 1)}
-              className="p-3 bg-white rounded-full shadow-sm disabled:opacity-30"
-            >
-              <ChevronLeft size={20} />
-            </button>
+            <button disabled={currentStep === 0} onClick={() => setCurrentStep(p => p - 1)} className="p-3 bg-white rounded-full shadow-sm disabled:opacity-30"><ChevronLeft size={20} /></button>
             <div className="text-center">
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-muted">Dia do Ciclo</span>
-              <p className="text-3xl font-serif text-brand-olive italic">{currentStep + 1}</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-brand-muted">Dia do Ciclo</p>
+              <p className="text-4xl font-serif text-brand-olive italic">{currentStep + 1}</p>
+              <p className="text-[9px] text-brand-muted">de {simulatedLogs.length}</p>
             </div>
-            <button 
-              disabled={currentStep === simulatedLogs.length - 1}
-              onClick={() => setCurrentStep(prev => prev + 1)}
-              className="p-3 bg-white rounded-full shadow-sm disabled:opacity-30"
-            >
-              <ChevronRight size={20} />
-            </button>
+            <button disabled={currentStep === simulatedLogs.length - 1} onClick={() => setCurrentStep(p => p + 1)} className="p-3 bg-white rounded-full shadow-sm disabled:opacity-30"><ChevronRight size={20} /></button>
           </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-             <div className="p-5 bg-brand-cream/30 rounded-2xl border border-brand-olive/5 text-center">
-                <span className="text-[9px] font-bold text-brand-muted uppercase block mb-2">Muco</span>
-                <span className="text-xs font-serif italic text-brand-olive">{currentLog?.mucus}</span>
-             </div>
-             <div className="p-5 bg-brand-cream/30 rounded-2xl border border-brand-olive/5 text-center">
-                <span className="text-[9px] font-bold text-brand-muted uppercase block mb-2">Sensação</span>
-                <span className="text-xs font-serif italic text-brand-olive">{currentLog?.sensation}</span>
-             </div>
-             <div className="p-5 bg-brand-cream/30 rounded-2xl border border-brand-olive/5 text-center">
-                <span className="text-[9px] font-bold text-brand-muted uppercase block mb-2">Basal</span>
-                <span className="text-xs font-serif italic text-brand-olive">{currentLog?.temperature}°C</span>
-             </div>
-             <div className="p-5 bg-brand-cream/30 rounded-2xl border border-brand-olive/5 text-center">
-                <span className="text-[9px] font-bold text-brand-muted uppercase block mb-2">Fluxo</span>
-                <span className="text-xs font-serif italic text-brand-olive">{currentLog?.bleeding}</span>
-             </div>
+          <div className="grid grid-cols-3 gap-4">
+            {[['Muco', currentLog?.mucus], ['Basal', `${currentLog?.temperature}°C`], ['Fluxo', currentLog?.bleeding]].map(([label, val]) => (
+              <div key={label as string} className="p-5 bg-brand-cream/30 rounded-2xl border border-brand-olive/5 text-center">
+                <span className="text-[9px] font-bold text-brand-muted uppercase block mb-2">{label as string}</span>
+                <span className="text-xs font-serif italic text-brand-olive">{val as string}</span>
+              </div>
+            ))}
           </div>
-
           <div className="h-64 bg-brand-page/20 rounded-3xl p-6 border border-black/5">
-             <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={simulatedLogs}>
-                  <XAxis dataKey="date" hide />
-                  <YAxis hide domain={['dataMin - 0.5', 'dataMax + 0.5']} />
-                  <Tooltip 
-                    content={({ active, payload }) => {
-                      if (active && payload && payload.length) {
-                        const data = payload[0].payload;
-                        return (
-                          <div className="bg-white p-3 rounded-xl shadow-xl border border-black/5 text-[10px]">
-                            <p className="font-bold">Dia {simulatedLogs.indexOf(data) + 1}</p>
-                            <p className="italic text-brand-olive">{data.temperature}°C</p>
-                            <p className="text-brand-muted uppercase tracking-tighter">{data.mucus}</p>
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
-                  <Bar dataKey={(d) => MUCUS_VALUES[d.mucus]} barSize={20} radius={[4, 4, 0, 0]}>
-                    {simulatedLogs.map((entry, index) => (
-                      <Cell key={index} fill={FERTILITY_COLORS[getFertilityStatus(simulatedLogs, entry.date)]} opacity={index === currentStep ? 1 : 0.3} />
-                    ))}
-                  </Bar>
-                  <Line type="monotone" dataKey="temperature" stroke="#5A5A40" strokeWidth={2} dot={false} strokeDasharray="5 5" opacity={0.5} />
-                  <ReferenceLine x={simulatedLogs[currentStep]?.date} stroke="#C67B5C" strokeWidth={2} strokeDasharray="3 3" />
-                </ComposedChart>
-             </ResponsiveContainer>
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={simulatedLogs}>
+                <XAxis dataKey="date" hide />
+                <YAxis hide domain={['dataMin - 0.5', 'dataMax + 0.5']} />
+                <Tooltip content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const d = payload[0].payload;
+                    return <div className="bg-white p-3 rounded-xl shadow-xl border border-black/5 text-[10px]"><p className="font-bold">Dia {simulatedLogs.indexOf(d) + 1}</p><p className="italic text-brand-olive">{d.temperature}°C</p><p className="text-brand-muted uppercase tracking-tighter">{d.mucus}</p></div>;
+                  }
+                  return null;
+                }} />
+                <Bar dataKey={(d) => MUCUS_VALUES[d.mucus]} barSize={20} radius={[4, 4, 0, 0]}>
+                  {simulatedLogs.map((entry, index) => <Cell key={index} fill={FERTILITY_COLORS[getFertilityStatus(simulatedLogs, entry.date)]} opacity={index === currentStep ? 1 : 0.3} />)}
+                </Bar>
+                <Line type="monotone" dataKey="temperature" stroke="#5A5A40" strokeWidth={2} dot={false} strokeDasharray="5 5" opacity={0.5} />
+                <ReferenceLine x={simulatedLogs[currentStep]?.date} stroke="#C67B5C" strokeWidth={2} strokeDasharray="3 3" />
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
         </div>
-
         <div className="space-y-6">
-           <div className="bg-brand-terracotta/5 p-8 rounded-[32px] border border-brand-terracotta/10 space-y-4">
-              <h4 className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-terracotta">
-                <ShieldCheck size={16} /> Análise do Dia
-              </h4>
-              <p className="text-[15px] font-serif italic leading-relaxed text-brand-text/80">
-                {currentLog?.isPeak && "Momento do Ápice: O dia com os sinais mais férteis (muco elástico e sensação escorregadia). Este é o gatilho biológico da ovulação."}
-                {currentLog?.bleeding !== 'none' && "Início do Ciclo: A menstruação marca o Dia 1. É um tempo de repouso e limpeza do endométrio."}
-                {currentStep > 0 && currentLog?.temperature > simulatedLogs[currentStep-1]?.temperature + 0.3 && "Salto Térmico: O aumento súbito da temperatura confirma que a ovulação já ocorreu."}
-                {!currentLog?.isPeak && currentLog?.bleeding === 'none' && currentLog?.mucus !== 'none' && "Fase Fértil: O aumento do estrogênio produz muco para preparar o caminho dos espermatozoides."}
-                {!currentLog?.isPeak && currentLog?.bleeding === 'none' && currentLog?.mucus === 'none' && (currentStep < 10 ? "Fase Infértil Inicial: Dias secos após a menstruação." : "Fase Lútea: Estágio de infertilidade absoluta após a subida confirmada da temperatura.")}
-              </p>
-           </div>
-
-           <div className="bg-white p-8 rounded-[32px] shadow-soft border border-black/5 space-y-4">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest text-brand-muted">Dica de Aprendizado</h4>
-              <p className="text-xs text-brand-text/60 italic leading-relaxed font-serif">
-                Use os botões de navegação para ver como os gráficos mudam dia após dia. Observe a relação entre o muco (barras coloridas) e a temperatura (linha pontilhada).
-              </p>
-              <button 
-                onClick={() => setCurrentStep(Math.max(0, simulatedLogs.findIndex(l => l.isPeak)))}
-                className="text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline"
-              >
-                Ir para o Ápice
-              </button>
-           </div>
+          <div className="bg-brand-terracotta/5 p-8 rounded-[32px] border border-brand-terracotta/10 space-y-4">
+            <h4 className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-terracotta"><ShieldCheck size={16} /> Análise do Dia</h4>
+            <p className="text-[15px] font-serif italic leading-relaxed text-brand-text/80">
+              {currentLog?.isPeak && "Momento do Ápice: O dia com os sinais mais férteis (muco elástico e sensação escorregadia)."}
+              {currentLog?.bleeding !== 'none' && "Início do Ciclo: A menstruação marca o Dia 1. É um tempo de repouso e limpeza do endométrio."}
+              {currentStep > 0 && currentLog?.temperature > simulatedLogs[currentStep - 1]?.temperature + 0.3 && "Salto Térmico: O aumento súbito da temperatura confirma que a ovulação já ocorreu."}
+              {!currentLog?.isPeak && currentLog?.bleeding === 'none' && currentLog?.mucus !== 'none' && "Fase Fértil: O estrogênio produz muco para preparar o caminho dos espermatozoides."}
+              {!currentLog?.isPeak && currentLog?.bleeding === 'none' && currentLog?.mucus === 'none' && (currentStep < 10 ? "Fase Infértil Inicial: Dias secos após a menstruação." : "Fase Lútea: Infertilidade absoluta após a subida confirmada da temperatura.")}
+            </p>
+          </div>
+          <div className="bg-white p-8 rounded-[32px] shadow-soft border border-black/5 space-y-4">
+            <h4 className="text-[10px] font-bold uppercase tracking-widest text-brand-muted">Dica de Aprendizado</h4>
+            <p className="text-xs text-brand-text/60 italic leading-relaxed font-serif">Use os botões para ver como os gráficos mudam dia após dia. Observe a relação entre muco (barras coloridas) e temperatura (linha pontilhada).</p>
+            <button onClick={() => setCurrentStep(Math.max(0, simulatedLogs.findIndex(l => l.isPeak)))} className="text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline">Ir para o Ápice</button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// PROFILE/SETTINGS SECTION
 function Profile({ logs, profile, onUpdate, onClear }: { logs: DailyLog[], profile: UserProfile, onUpdate: (u: Partial<UserProfile>) => void, onClear: () => void }) {
   const [isEditing, setIsEditing] = useState(false);
-
   return (
     <div className="space-y-12 pb-20">
       <header className="flex flex-col items-center">
         <div className="relative group cursor-pointer" onClick={() => setIsEditing(!isEditing)}>
           <div className="w-32 h-32 bg-brand-cream rounded-full flex items-center justify-center p-1 border border-black/5 shadow-soft overflow-hidden group-hover:scale-95 transition-transform duration-500">
-             <div className="w-full h-full bg-brand-olive rounded-full flex items-center justify-center">
-                <User size={48} className="text-white opacity-80" />
-             </div>
+            <div className="w-full h-full bg-brand-olive rounded-full flex items-center justify-center"><User size={48} className="text-white opacity-80" /></div>
           </div>
-          <div className="absolute -bottom-2 -right-2 bg-white w-10 h-10 rounded-full flex items-center justify-center shadow-md border border-black/5">
-             <Heart size={18} className="text-brand-terracotta" fill="#C67B5C" />
-          </div>
+          <div className="absolute -bottom-2 -right-2 bg-white w-10 h-10 rounded-full flex items-center justify-center shadow-md border border-black/5"><Heart size={18} className="text-brand-terracotta" fill="#C67B5C" /></div>
         </div>
         <div className="text-center mt-6">
           <h2 className="text-3xl font-serif text-brand-text mb-1 italic">{profile.name}</h2>
@@ -1328,130 +1207,70 @@ function Profile({ logs, profile, onUpdate, onClear }: { logs: DailyLog[], profi
       <div className="max-w-2xl mx-auto space-y-8">
         <section className="bg-white p-8 rounded-[40px] shadow-soft border border-brand-olive/5">
           <header className="flex items-center justify-between mb-8">
-             <h3 className="text-[11px] font-bold uppercase tracking-widest text-brand-text">Dados Pessoais & Biometria</h3>
-             <button 
-                onClick={() => setIsEditing(!isEditing)}
-                className="text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline"
-              >
-               {isEditing ? 'Salvar' : 'Editar'}
-             </button>
+            <h3 className="text-[11px] font-bold uppercase tracking-widest text-brand-text">Dados Pessoais & Biometria</h3>
+            <button onClick={() => setIsEditing(!isEditing)} className="text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline">{isEditing ? 'Salvar' : 'Editar'}</button>
           </header>
-          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             <div className="space-y-2">
-                <label className="text-[10px] font-bold text-brand-muted uppercase tracking-widest">Nome Completo</label>
-                <input 
-                  type="text" 
-                  disabled={!isEditing}
-                  value={profile.name}
-                  onChange={(e) => onUpdate({ name: e.target.value })}
-                  className="w-full p-3 bg-brand-page/50 rounded-xl border border-black/5 focus:outline-none text-sm font-serif italic"
-                />
-             </div>
-             <div className="space-y-2">
-                <label className="text-[10px] font-bold text-brand-muted uppercase tracking-widest">Altura (cm)</label>
-                <input 
-                  type="number" 
-                  disabled={!isEditing}
-                  value={profile.height || ''}
-                  onChange={(e) => onUpdate({ height: parseInt(e.target.value) })}
-                  className="w-full p-3 bg-brand-page/50 rounded-xl border border-black/5 focus:outline-none text-sm font-serif italic"
-                />
-             </div>
-             <div className="space-y-2">
-                <label className="text-[10px] font-bold text-brand-muted uppercase tracking-widest">Peso (kg)</label>
-                <input 
-                  type="number" 
-                  disabled={!isEditing}
-                  value={profile.weight || ''}
-                  onChange={(e) => onUpdate({ weight: parseFloat(e.target.value) })}
-                  className="w-full p-3 bg-brand-page/50 rounded-xl border border-black/5 focus:outline-none text-sm font-serif italic"
-                />
-             </div>
-             <div className="space-y-2">
-                <label className="text-[10px] font-bold text-brand-muted uppercase tracking-widest">Duração do Ciclo (Méd.)</label>
-                <input 
-                  type="number" 
-                  disabled={!isEditing}
-                  value={profile.cycleLength || ''}
-                  onChange={(e) => onUpdate({ cycleLength: parseInt(e.target.value) })}
-                  className="w-full p-3 bg-brand-page/50 rounded-xl border border-black/5 focus:outline-none text-sm font-serif italic"
-                />
-             </div>
+            {[
+              { label: 'Nome Completo', type: 'text', value: profile.name, onChange: (v: string) => onUpdate({ name: v }) },
+              { label: 'Altura (cm)', type: 'number', value: profile.height || '', onChange: (v: string) => onUpdate({ height: parseInt(v) }) },
+              { label: 'Peso (kg)', type: 'number', value: profile.weight || '', onChange: (v: string) => onUpdate({ weight: parseFloat(v) }) },
+              { label: 'Duração do Ciclo (Méd.)', type: 'number', value: profile.cycleLength || '', onChange: (v: string) => onUpdate({ cycleLength: parseInt(v) }) },
+            ].map(f => (
+              <div key={f.label} className="space-y-2">
+                <label className="text-[10px] font-bold text-brand-muted uppercase tracking-widest">{f.label}</label>
+                <input type={f.type} disabled={!isEditing} value={f.value as any} onChange={(e) => f.onChange(e.target.value)}
+                  className="w-full p-3 bg-brand-page/50 rounded-xl border border-black/5 focus:outline-none text-sm font-serif italic" />
+              </div>
+            ))}
           </div>
         </section>
 
         <section className="bg-white p-8 rounded-[40px] shadow-soft border border-brand-olive/5">
-           <h3 className="text-[11px] font-bold uppercase tracking-widest text-brand-text mb-6">Método de Acompanhamento</h3>
-           <div className="space-y-3">
-              {METHODS.map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => onUpdate({ selectedMethod: m.id })}
-                  className={cn(
-                    "w-full p-4 rounded-2xl border text-left flex items-center justify-between group transition-all",
-                    profile.selectedMethod === m.id 
-                      ? "bg-brand-olive/5 border-brand-olive/20" 
-                      : "bg-white border-black/[0.05] hover:border-black/10"
-                  )}
-                >
-                  <div className="flex flex-col">
-                    <span className={cn("text-xs font-bold uppercase tracking-widest", profile.selectedMethod === m.id ? "text-brand-olive" : "text-brand-text")}>{m.name}</span>
-                    <span className="text-[10px] text-brand-muted italic font-serif">{m.basis}</span>
-                  </div>
-                  <div className={cn(
-                    "w-5 h-5 rounded-full border-2 flex items-center justify-center",
-                    profile.selectedMethod === m.id ? "bg-brand-olive border-brand-olive" : "border-black/10"
-                  )}>
-                    {profile.selectedMethod === m.id && <div className="w-2 h-2 bg-white rounded-full" />}
-                  </div>
-                </button>
-              ))}
-           </div>
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-brand-text mb-6">Método de Acompanhamento</h3>
+          <div className="space-y-3">
+            {METHODS.map(m => (
+              <button key={m.id} onClick={() => onUpdate({ selectedMethod: m.id })}
+                className={cn("w-full p-4 rounded-2xl border text-left flex items-center justify-between group transition-all",
+                  profile.selectedMethod === m.id ? "bg-brand-olive/5 border-brand-olive/20" : "bg-white border-black/[0.05] hover:border-black/10")}>
+                <div className="flex flex-col">
+                  <span className={cn("text-xs font-bold uppercase tracking-widest", profile.selectedMethod === m.id ? "text-brand-olive" : "text-brand-text")}>{m.name}</span>
+                  <span className="text-[10px] text-brand-muted italic font-serif">{m.basis}</span>
+                </div>
+                <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center", profile.selectedMethod === m.id ? "bg-brand-olive border-brand-olive" : "border-black/10")}>
+                  {profile.selectedMethod === m.id && <div className="w-2 h-2 bg-white rounded-full" />}
+                </div>
+              </button>
+            ))}
+          </div>
         </section>
 
         <section className="bg-white p-8 rounded-[40px] shadow-soft border border-brand-olive/5 space-y-6">
-           <h3 className="text-[11px] font-bold uppercase tracking-widest text-brand-text">Preferências & Sistema</h3>
-           
-           <div className="flex items-center justify-between">
-              <div className="flex flex-col">
-                 <span className="text-xs font-bold text-brand-text uppercase tracking-widest">Lembretes Diários</span>
-                 <span className="text-[10px] text-brand-muted italic font-serif">Avisar para fazer o registro noturno</span>
-              </div>
-              <button 
-                onClick={() => onUpdate({ remindersEnabled: !profile.remindersEnabled })}
-                className={cn(
-                  "w-12 h-6 rounded-full relative transition-all",
-                  profile.remindersEnabled ? "bg-brand-olive" : "bg-black/10"
-                )}
-              >
-                <div className={cn(
-                  "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                  profile.remindersEnabled ? "left-7" : "left-1"
-                )} />
-              </button>
-           </div>
-           
-           <div className="h-px bg-black/[0.03]" />
-
-           <button 
-              onClick={() => {
-                const data = JSON.stringify({ profile, logs });
-                const blob = new Blob([data], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `graca-e-vida-${profile.name}-${new Date().toISOString().split('T')[0]}.json`;
-                a.click();
-              }}
-              className="w-full flex items-center justify-between p-4 bg-brand-page/50 hover:bg-brand-cream rounded-2xl transition-all group"
-            >
-              <div className="flex items-center gap-4">
-                <Info size={18} className="text-brand-olive" />
-                <span className="text-xs font-bold uppercase tracking-widest text-brand-text">Backup do Perfil</span>
-              </div>
-              <ChevronRight size={18} className="text-brand-muted opacity-40 group-hover:translate-x-1 transition-transform" />
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-brand-text">Preferências & Sistema</h3>
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-brand-text uppercase tracking-widest">Lembretes Diários</span>
+              <span className="text-[10px] text-brand-muted italic font-serif">Avisar para fazer o registro noturno</span>
+            </div>
+            <button onClick={() => onUpdate({ remindersEnabled: !profile.remindersEnabled })}
+              className={cn("w-12 h-6 rounded-full relative transition-all", profile.remindersEnabled ? "bg-brand-olive" : "bg-black/10")}>
+              <div className={cn("absolute top-1 w-4 h-4 bg-white rounded-full transition-all", profile.remindersEnabled ? "left-7" : "left-1")} />
             </button>
+          </div>
+          <div className="h-px bg-black/[0.03]" />
+          <button onClick={() => {
+            const data = JSON.stringify({ profile, logs });
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `graca-e-vida-${profile.name}-${new Date().toISOString().split('T')[0]}.json`; a.click();
+          }} className="w-full flex items-center justify-between p-4 bg-brand-page/50 hover:bg-brand-cream rounded-2xl transition-all group">
+            <div className="flex items-center gap-4">
+              <Info size={18} className="text-brand-olive" />
+              <span className="text-xs font-bold uppercase tracking-widest text-brand-text">Backup do Perfil</span>
+            </div>
+            <ChevronRight size={18} className="text-brand-muted opacity-40 group-hover:translate-x-1 transition-transform" />
+          </button>
         </section>
       </div>
 
@@ -1466,7 +1285,6 @@ function Profile({ logs, profile, onUpdate, onClear }: { logs: DailyLog[], profi
   );
 }
 
-// DOCTRINE SECTION
 function Doctrine() {
   return (
     <div className="space-y-10 pb-20">
@@ -1474,25 +1292,19 @@ function Doctrine() {
         <h2 className="text-3xl font-serif text-brand-text mb-2">Magistério da Igreja</h2>
         <p className="text-sm text-brand-muted italic font-serif">O que ensina a Igreja sobre a vida e a família</p>
       </header>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {CHURCH_TEACHINGS.map((teaching, i) => (
           <div key={i} className="bg-white p-8 rounded-[32px] shadow-soft border border-brand-olive/5 flex flex-col h-full">
             <h3 className="text-lg font-serif text-brand-olive italic mb-4">{teaching.title}</h3>
             <p className="text-sm text-brand-text/70 leading-relaxed font-serif italic flex-grow">"{teaching.content}"</p>
-            <p className="mt-6 text-[10px] uppercase tracking-widest font-bold text-brand-muted border-t border-black/5 pt-4">
-              {teaching.source}
-            </p>
+            <p className="mt-6 text-[10px] uppercase tracking-widest font-bold text-brand-muted border-t border-black/5 pt-4">{teaching.source}</p>
           </div>
         ))}
       </div>
-
       <div className="bg-brand-olive p-10 rounded-[40px] text-white space-y-6 relative overflow-hidden">
         <div className="relative z-10">
           <h3 className="text-2xl font-serif italic mb-4">A Pastoral Familiar</h3>
-          <p className="text-sm leading-relaxed opacity-90 font-light">
-            A Igreja não apenas ensina a norma, mas caminha junto com os casais através da Pastoral Familiar, oferecendo suporte humano, espiritual e médico para a vivência da paternidade e maternidade responsáveis.
-          </p>
+          <p className="text-sm leading-relaxed opacity-90 font-light">A Igreja não apenas ensina a norma, mas caminha junto com os casais através da Pastoral Familiar, oferecendo suporte humano, espiritual e médico para a vivência da paternidade e maternidade responsáveis.</p>
           <div className="mt-6 flex flex-wrap gap-4">
             <div className="px-4 py-2 border border-white/20 rounded-full text-[10px] uppercase tracking-widest font-bold">Moral Católica</div>
             <div className="px-4 py-2 border border-white/20 rounded-full text-[10px] uppercase tracking-widest font-bold">Fidelidade</div>
@@ -1504,64 +1316,27 @@ function Doctrine() {
     </div>
   );
 }
+
 function Tutorial({ onComplete, onDismiss }: { onComplete: () => void, onDismiss: () => void }) {
   const [step, setStep] = useState(0);
   const steps = [
-    {
-      title: "Boas-vindas ao Graça & Vida",
-      desc: "Um espaço sagrado para o autoconhecimento e a harmonia do casal.",
-      icon: Heart,
-    },
-    {
-      title: "O Coração do Aplicativo",
-      desc: "Aqui no 'Hoje', você vê seu estado biológico atual processado pela ciência e pela oração.",
-      icon: User,
-    },
-    {
-      title: "Registros Sagrados",
-      desc: "No fim do dia, ore com seu esposo e registre seus sinais (muco, sensação e temperatura).",
-      icon: Droplets,
-    },
-    {
-      title: "Sabedoria Compartilhada",
-      desc: "Na aba 'Aprender', você encontra a história e o passo a passo de cada método com total precisão.",
-      icon: BookOpen,
-    }
+    { title: "Boas-vindas ao Graça & Vida", desc: "Um espaço sagrado para o autoconhecimento e a harmonia do casal.", icon: Heart },
+    { title: "O Coração do Aplicativo", desc: "Aqui no 'Hoje', você vê seu estado biológico atual processado pela ciência e pela oração.", icon: User },
+    { title: "Registros Sagrados", desc: "No fim do dia, ore com seu esposo e registre seus sinais (muco, sensação e temperatura).", icon: Droplets },
+    { title: "Sabedoria Compartilhada", desc: "Na aba 'Aprender', você encontra a história e o passo a passo de cada método com total precisão.", icon: BookOpen },
   ];
-
   const current = steps[step];
-
   return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] bg-brand-olive/90 backdrop-blur-md flex items-center justify-center p-6"
-    >
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-brand-olive/90 backdrop-blur-md flex items-center justify-center p-6">
       <div className="bg-white max-w-sm w-full rounded-[48px] p-10 shadow-2xl relative overflow-hidden flex flex-col items-center text-center">
-        <div className="mb-8 w-20 h-20 bg-brand-cream rounded-full flex items-center justify-center text-brand-olive">
-           <current.icon size={32} />
-        </div>
-        
+        <div className="mb-8 w-20 h-20 bg-brand-cream rounded-full flex items-center justify-center text-brand-olive"><current.icon size={32} /></div>
         <h3 className="text-2xl font-serif text-brand-text italic leading-tight mb-4">{current.title}</h3>
         <p className="text-[15px] text-brand-muted leading-relaxed font-serif italic mb-10">{current.desc}</p>
-        
         <div className="flex gap-2 mb-8">
-           {steps.map((_, i) => (
-             <div key={i} className={cn("h-1.5 rounded-full transition-all", step === i ? "w-8 bg-brand-olive" : "w-1.5 bg-brand-olive/10")} />
-           ))}
+          {steps.map((_, i) => <div key={i} className={cn("h-1.5 rounded-full transition-all", step === i ? "w-8 bg-brand-olive" : "w-1.5 bg-brand-olive/10")} />)}
         </div>
-
-        <button 
-          onClick={() => {
-            if (step < steps.length - 1) setStep(step + 1);
-            else {
-              onComplete();
-              onDismiss();
-            }
-          }}
-          className="w-full py-5 bg-brand-olive text-white rounded-2xl font-bold uppercase tracking-[0.2em] text-[12px] shadow-xl shadow-brand-olive/10"
-        >
+        <button onClick={() => { if (step < steps.length - 1) setStep(step + 1); else { onComplete(); onDismiss(); } }}
+          className="w-full py-5 bg-brand-olive text-white rounded-2xl font-bold uppercase tracking-[0.2em] text-[12px] shadow-xl shadow-brand-olive/10">
           {step < steps.length - 1 ? 'Continuar' : 'Começar Minha Jornada'}
         </button>
       </div>
