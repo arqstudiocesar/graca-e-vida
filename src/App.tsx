@@ -329,68 +329,79 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
 }
 
 // ─── PREVISÃO INTELIGENTE DO CICLO ────────────────────────────────────────────
-// Calcula o início dos últimos ciclos a partir dos logs de sangramento
-// e devolve um mapa dateStr → fase prevista (apenas para dias sem log real).
+// Usa a lógica correta: ovulação = ciclo − 14; janela fértil = 6 dias antes;
+// margem de segurança ±2 dias em cada transição de fase.
 type PredictedPhase = 'pred-menstrual' | 'pred-proliferative' | 'pred-ovulatory' | 'pred-luteal';
+
+const CYCLE_SAFETY_MARGIN = 2;
+
+function getCycleRangesLocal(cycleLength: number) {
+  const ovulationDay    = cycleLength - 14;
+  const fertileStart    = Math.max(6, ovulationDay - 5 - CYCLE_SAFETY_MARGIN);
+  const fertileEnd      = ovulationDay + CYCLE_SAFETY_MARGIN;
+  return { menstrualEnd: 4, fertileStart, fertileEnd, ovulationDay };
+}
+
+function findCycleStartsLocal(logs: DailyLog[]): string[] {
+  const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date));
+  const starts: string[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const log = sorted[i];
+    if (log.bleeding === 'heavy' || log.bleeding === 'medium') {
+      const prev = sorted[i - 1];
+      const gap  = prev ? differenceInDays(parseISO(log.date), parseISO(prev.date)) : 99;
+      const prevBleeding = prev && prev.bleeding && prev.bleeding !== 'none';
+      if (!prevBleeding || gap > 4) {
+        const lastStart = starts[starts.length - 1];
+        if (!lastStart || differenceInDays(parseISO(log.date), parseISO(lastStart)) >= 18) {
+          starts.push(log.date);
+        }
+      }
+    }
+  }
+  return starts;
+}
+
+function calcAvgLocal(starts: string[], fallback: number): number {
+  if (starts.length < 2) return fallback;
+  const durations: number[] = [];
+  for (let i = 1; i < starts.length; i++) {
+    const d = differenceInDays(parseISO(starts[i]), parseISO(starts[i - 1]));
+    if (d >= 21 && d <= 45) durations.push(d);
+  }
+  return durations.length > 0
+    ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+    : fallback;
+}
 
 function buildCyclePredictions(
   logs: DailyLog[],
   cycleLength: number = 28
 ): Record<string, PredictedPhase> {
-  // 1. Encontrar inícios de ciclo (Dia 1 = primeiro dia de sangramento após ≥7 dias sem sangramento)
-  const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date));
-  const cycleStarts: string[] = [];
-
-  for (let i = 0; i < sorted.length; i++) {
-    const log = sorted[i];
-    if (log.bleeding && log.bleeding !== 'none') {
-      const prev = sorted[i - 1];
-      const isNewCycle =
-        !prev ||
-        differenceInDays(parseISO(log.date), parseISO(prev.date)) > 3 ||
-        prev.bleeding === 'none';
-      if (isNewCycle) cycleStarts.push(log.date);
-    }
-  }
-
-  // 2. Se não há registros suficientes, usar hoje como referência aproximada
+  const cycleStarts = findCycleStartsLocal(logs);
   if (cycleStarts.length === 0) return {};
 
-  // 3. Calcular duração média real dos ciclos
-  let avgCycle = cycleLength;
-  if (cycleStarts.length >= 2) {
-    const durations: number[] = [];
-    for (let i = 1; i < cycleStarts.length; i++) {
-      const d = differenceInDays(parseISO(cycleStarts[i]), parseISO(cycleStarts[i - 1]));
-      if (d >= 20 && d <= 45) durations.push(d);
-    }
-    if (durations.length > 0) avgCycle = Math.round(durations.reduce((a, b) => a + b) / durations.length);
-  }
-
-  // 4. Gerar previsões: 2 ciclos futuros a partir do último início conhecido
+  const avgCycle  = calcAvgLocal(cycleStarts, cycleLength);
   const lastStart = cycleStarts[cycleStarts.length - 1];
+  const ranges    = getCycleRangesLocal(avgCycle);
   const predictions: Record<string, PredictedPhase> = {};
 
-  // Fase lútea dura ~14 dias (constante); fase folicular = ciclo - 14
-  const lutealLength = 14;
-  const follicularLength = avgCycle - lutealLength;
-  // Menstruação: dias 1-5; Proliferativa: dias 6-(ovulação-1); Ovulatória: (ov-1)-(ov+1); Lútea: ov+2 em diante
-  const menstrualEnd = 5;
-  const ovulationDay = follicularLength; // dia do pico (ex: dia 14 em ciclo 28)
-  const ovulatoryStart = ovulationDay - 1;
-  const ovulatoryEnd = ovulationDay + 1;
-
+  // Gerar previsões para 3 ciclos a partir do último início
   for (let cycle = 0; cycle < 3; cycle++) {
     const cycleStart = addDays(parseISO(lastStart), cycle * avgCycle);
     for (let d = 0; d < avgCycle; d++) {
       const date = format(addDays(cycleStart, d), 'yyyy-MM-dd');
-      // Não sobrescrever dias com registro real
-      if (logs.some(l => l.date === date)) continue;
+      if (logs.some(l => l.date === date)) continue; // não sobrescrever dados reais
       let phase: PredictedPhase;
-      if (d < menstrualEnd) phase = 'pred-menstrual';
-      else if (d < ovulatoryStart) phase = 'pred-proliferative';
-      else if (d <= ovulatoryEnd) phase = 'pred-ovulatory';
-      else phase = 'pred-luteal';
+      if (d <= ranges.menstrualEnd) {
+        phase = 'pred-menstrual';
+      } else if (d >= ranges.fertileStart && d <= ranges.fertileEnd) {
+        phase = 'pred-ovulatory';   // toda a janela fértil (inclui ápice) em amarelo
+      } else if (d > ranges.fertileEnd) {
+        phase = 'pred-luteal';
+      } else {
+        phase = 'pred-proliferative';
+      }
       predictions[date] = phase;
     }
   }
@@ -406,10 +417,10 @@ const PRED_COLORS: Record<PredictedPhase, string> = {
 };
 
 const PRED_LABELS: Record<PredictedPhase, string> = {
-  'pred-menstrual':     'Menstruação (prev.)',
-  'pred-proliferative': 'Infértil (prev.)',
-  'pred-ovulatory':     'Ovulação (prev.)',
-  'pred-luteal':        'Pós-Ovul. (prev.)',
+  'pred-menstrual':     'Menstruação (est.)',
+  'pred-proliferative': 'Infértil Inicial (est.)',
+  'pred-ovulatory':     'Janela Fértil (est.)',
+  'pred-luteal':        'Pós-Ovulatório (est.)',
 };
 
 // FIX 2 — CALENDÁRIO: usa format(day,'yyyy-MM-dd') para evitar bug de fuso horário
@@ -428,14 +439,22 @@ function Calendar({ logs, onDateSelect, cycleLength }: { logs: DailyLog[], onDat
   const predictions = buildCyclePredictions(logs, cycleLength || 28);
 
   // Resumo do ciclo atual para exibir abaixo do calendário
-  const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date));
-  const lastMenstrualStart = [...sorted].reverse().find(l => l.bleeding && l.bleeding !== 'none')?.date;
-  const avgCycle = cycleLength || 28;
-  const nextMenstruationDate = lastMenstrualStart
-    ? format(addDays(parseISO(lastMenstrualStart), avgCycle), "dd/MM/yyyy")
+  const lastMenstrualStart = findCycleStartsLocal(logs).slice(-1)[0] || null;
+  const avgCycle = calcAvgLocal(findCycleStartsLocal(logs), cycleLength || 28);
+  const cycleRanges = getCycleRangesLocal(avgCycle);
+
+  // Datas absolutas das fases (a partir do último início de ciclo)
+  const ovulationDateStr = lastMenstrualStart
+    ? format(addDays(parseISO(lastMenstrualStart), cycleRanges.ovulationDay), 'dd/MM')
     : null;
-  const ovulationEstimate = lastMenstrualStart
-    ? format(addDays(parseISO(lastMenstrualStart), avgCycle - 14), "dd/MM")
+  const fertileStartStr = lastMenstrualStart
+    ? format(addDays(parseISO(lastMenstrualStart), cycleRanges.fertileStart), 'dd/MM')
+    : null;
+  const fertileEndStr = lastMenstrualStart
+    ? format(addDays(parseISO(lastMenstrualStart), cycleRanges.fertileEnd), 'dd/MM')
+    : null;
+  const nextMenstruationDate = lastMenstrualStart
+    ? format(addDays(parseISO(lastMenstrualStart), avgCycle), 'dd/MM/yyyy')
     : null;
 
   return (
@@ -516,21 +535,28 @@ function Calendar({ logs, onDateSelect, cycleLength }: { logs: DailyLog[], onDat
       {/* Resumo inteligente do ciclo */}
       {lastMenstrualStart && (
         <div className="bg-white p-6 rounded-[28px] shadow-soft border border-brand-olive/5">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-muted mb-4">Previsão do Ciclo</p>
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-muted mb-4">Previsão do Ciclo · Ciclo de {avgCycle} dias</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
             <div className="space-y-1">
               <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Duração Est.</p>
               <p className="text-xl font-serif text-brand-olive italic">{avgCycle}<span className="text-xs ml-0.5 opacity-60">d</span></p>
             </div>
             <div className="space-y-1">
+              <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Janela Fértil</p>
+              <p className="text-base font-serif text-brand-olive italic leading-tight">{fertileStartStr} – {fertileEndStr}</p>
+            </div>
+            <div className="space-y-1">
               <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Ovulação Est.</p>
-              <p className="text-xl font-serif text-brand-olive italic">{ovulationEstimate}</p>
+              <p className="text-xl font-serif text-brand-olive italic">{ovulationDateStr}</p>
             </div>
             <div className="space-y-1">
               <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Próx. Ciclo</p>
-              <p className="text-xl font-serif text-brand-olive italic">{nextMenstruationDate}</p>
+              <p className="text-base font-serif text-brand-olive italic leading-tight">{nextMenstruationDate}</p>
             </div>
           </div>
+          <p className="text-[9px] italic text-brand-muted/50 mt-4 font-serif text-center">
+            Janela fértil calculada com margem de segurança de ±{CYCLE_SAFETY_MARGIN} dias · Baseada nos seus registros reais
+          </p>
         </div>
       )}
 
