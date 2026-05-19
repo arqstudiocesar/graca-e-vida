@@ -229,6 +229,17 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
   const color = FERTILITY_COLORS[todayStatus];
   const recentLogs = logs.slice(-5).reverse();
 
+  // Calcular dia atual do ciclo para exibição
+  const cycleStarts = findCycleStartsLocal(logs);
+  const avgCycle = calcAvgLocal(cycleStarts, profile.cycleLength || 28);
+  const lastCycleStart = cycleStarts[cycleStarts.length - 1];
+  const currentCycleDay = lastCycleStart
+    ? differenceInDays(parseISO(today), parseISO(lastCycleStart)) + 1
+    : null;
+  const cycleRanges = getCycleRangesLocal(avgCycle);
+  const fertileStartDay = cycleRanges.fertileStart + 1;
+  const fertileEndDay   = cycleRanges.fertileEnd + 1;
+
   return (
     <div className="space-y-8">
       <div className="bg-white p-10 rounded-[32px] shadow-soft border border-brand-olive/5 relative overflow-hidden flex flex-col items-center text-center">
@@ -236,6 +247,26 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
         <p className="text-[11px] uppercase tracking-[0.2em] text-brand-muted font-bold mb-4">Olá, {profile.name}</p>
         <h2 className="text-4xl font-serif text-brand-text mb-2 italic leading-tight">{statusLabel[todayStatus]}</h2>
         <p className="text-sm font-sans text-brand-muted mb-10">{format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}</p>
+        {currentCycleDay !== null && currentCycleDay > 0 && currentCycleDay <= avgCycle + 7 && (
+          <div className="w-full max-w-xs mb-8 space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-brand-muted">Dia do Ciclo</span>
+              <span className="text-[9px] font-bold text-brand-olive">{currentCycleDay} / {avgCycle}</span>
+            </div>
+            <div className="h-1.5 bg-black/5 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min(100, (currentCycleDay / avgCycle) * 100)}%`,
+                  backgroundColor: color
+                }}
+              />
+            </div>
+            <p className="text-[9px] text-brand-muted italic text-center">
+              Janela fértil est.: dias {fertileStartDay}–{fertileEndDay}
+            </p>
+          </div>
+        )}
         <div className="relative group">
           <div className="w-40 h-40 rounded-full flex items-center justify-center" style={{ backgroundColor: `${color}10` }}>
             <div className="w-28 h-28 rounded-full flex items-center justify-center shadow-lg transition-transform duration-500 group-hover:scale-105" style={{ backgroundColor: color }}>
@@ -303,13 +334,27 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
           <h4 className="text-brand-terracotta font-serif text-lg italic flex items-center gap-2">
             <Info size={20} /> Orientação
           </h4>
-          <p className="text-[14px] leading-relaxed text-brand-text/80 font-serif italic">
-            {todayStatus === 'high-fertility' && "Os sinais sugerem alta fertilidade. Se deseja evitar uma gravidez neste momento, recomenda-se a abstinência periódica."}
-            {todayStatus === 'potentially-fertile' && "Início da fase fértil. Observe cuidadosamente as mudanças na sensação e no muco."}
-            {todayStatus === 'infertile' && "Fase infértil detectada. Continue as observações diárias habituais conforme o seu aprendizado."}
-            {todayStatus === 'menstrual' && "Período menstrual iniciado. Favor registrar o fluxo para precisão do gráfico."}
-            {todayStatus === 'post-ovulatory' && "Ovulação confirmada. Fase de infertilidade absoluta garantida até o próximo ciclo."}
-          </p>
+          {(() => {
+            const insight = buildFertilityInsight(logs, today, profile.cycleLength);
+            return (
+              <div className="space-y-3">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-brand-terracotta/80">{insight.alert}</p>
+                <p className="text-[14px] leading-relaxed text-brand-text/80 font-serif italic">{insight.reason}</p>
+                {insight.sources.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {insight.sources.map(s => (
+                      <span key={s} className="px-2 py-0.5 bg-brand-terracotta/10 rounded-full text-[9px] font-bold uppercase tracking-wider text-brand-terracotta/70">{s}</span>
+                    ))}
+                  </div>
+                )}
+                {insight.safetyNote && (
+                  <p className="text-[11px] italic text-brand-muted/80 font-serif border-t border-brand-terracotta/10 pt-2 mt-1">
+                    ⚠️ {insight.safetyNote}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -409,7 +454,174 @@ function buildCyclePredictions(
   return predictions;
 }
 
-const PRED_COLORS: Record<PredictedPhase, string> = {
+// ─── IA EXPLICATIVA: explica por que o dia tem aquela fertilidade ──────────────
+interface FertilityInsight {
+  alert: string;           // ex: "Alta fertilidade provável"
+  reason: string;          // ex: "Muco elástico e sensação escorregadia detectados"
+  sources: string[];       // sinais usados no cálculo
+  safetyNote?: string;     // nota de responsabilidade
+}
+
+function buildFertilityInsight(
+  logs: DailyLog[],
+  date: string,
+  cycleLength: number = 28
+): FertilityInsight {
+  const log = logs.find(l => l.date === date);
+  const sources: string[] = [];
+  let alert = '';
+  let reason = '';
+  let safetyNote = '';
+
+  // Detectar subida térmica confirmada (3 dias acima da média das 6 anteriores)
+  const sortedLogs = [...logs].sort((a, b) => a.date.localeCompare(b.date));
+  const idx = sortedLogs.findIndex(l => l.date === date);
+  let thermalRiseConfirmed = false;
+  let thermalInconsistency = false;
+
+  if (idx >= 3) {
+    const prev6 = sortedLogs.slice(Math.max(0, idx - 6), idx).filter(l => l.temperature);
+    const last3 = sortedLogs.slice(idx - 3, idx).filter(l => l.temperature);
+    if (prev6.length >= 3 && last3.length === 3) {
+      const avgPrev = prev6.reduce((s, l) => s + (l.temperature || 0), 0) / prev6.length;
+      const allHigh = last3.every(l => (l.temperature || 0) > avgPrev + 0.15);
+      thermalRiseConfirmed = allHigh;
+    }
+    // Inconsistência: temperatura alta isolada entre temperaturas baixas
+    if (idx >= 1 && idx < sortedLogs.length - 1 && log?.temperature) {
+      const prevT = sortedLogs[idx - 1]?.temperature;
+      const nextT = sortedLogs[idx + 1]?.temperature;
+      if (prevT && nextT && log.temperature > prevT + 0.3 && log.temperature > nextT + 0.3) {
+        thermalInconsistency = true;
+      }
+    }
+  }
+
+  // 1. Sangramento
+  if (log?.bleeding && log.bleeding !== 'none') {
+    sources.push('sangramento registrado');
+    alert = 'Período menstrual';
+    reason = `Fluxo ${log.bleeding === 'heavy' ? 'intenso' : log.bleeding === 'medium' ? 'moderado' : 'leve'} registrado. Fertilidade relativa baixa durante este período.`;
+    safetyNote = 'Ovulação precoce é possível em ciclos curtos. Continue os registros diários.';
+    return { alert, reason, sources, safetyNote };
+  }
+
+  // 2. Sinais de altíssima fertilidade
+  if (log?.mucus === 'eggwhite' && log?.sensation === 'slippery') {
+    sources.push('muco elástico (clara de ovo)', 'sensação escorregadia');
+    alert = 'Alta fertilidade identificada';
+    reason = 'Dois sinais de máxima fertilidade presentes: muco elástico e sensação escorregadia. Provável janela de ovulação ativa.';
+    safetyNote = 'Período de alta chance de concepção. Se deseja evitar gravidez, recomenda-se abstinência periódica.';
+    return { alert, reason, sources, safetyNote };
+  }
+
+  if (log?.mucus === 'eggwhite') {
+    sources.push('muco elástico (clara de ovo)');
+    alert = 'Alta fertilidade provável';
+    reason = 'Muco elástico (tipo clara de ovo) detectado. Sinal de ovulação iminente ou em curso.';
+    safetyNote = 'Alta chance de fertilidade. Observe também a sensação vulvar.';
+    return { alert, reason, sources, safetyNote };
+  }
+
+  if (log?.sensation === 'slippery') {
+    sources.push('sensação escorregadia');
+    alert = 'Fertilidade elevada';
+    reason = 'Sensação escorregadia detectada. Sinal importante de abertura do período fértil.';
+    safetyNote = 'Considere-se fértil. Observe o muco para confirmação.';
+    return { alert, reason, sources, safetyNote };
+  }
+
+  // 3. Ápice confirmado → pós-ovulatório
+  const recentPeak = [...logs].filter(l => {
+    const diff = differenceInDays(parseISO(date), parseISO(l.date));
+    return diff > 0 && diff <= 14 && l.isPeak;
+  }).sort((a, b) => parseISO(b.date).getTime() - parseISO(a.date).getTime())[0];
+
+  if (recentPeak) {
+    sources.push('ápice de fertilidade confirmado');
+    if (thermalRiseConfirmed) sources.push('subida térmica confirmada (3 dias)');
+    const daysAfterPeak = differenceInDays(parseISO(date), parseISO(recentPeak.date));
+    alert = 'Pós-ovulatório provável';
+    reason = `Ápice de fertilidade registrado há ${daysAfterPeak} dia(s)${thermalRiseConfirmed ? ', com subida térmica confirmada por 3 dias consecutivos' : ''}. Fase lútea estimada.`;
+    safetyNote = 'Baixo risco relativo estimado. Mantenha os registros para maior precisão.';
+    return { alert, reason, sources, safetyNote };
+  }
+
+  // 4. Muco crescente
+  if (log?.mucus === 'watery') {
+    sources.push('muco aquoso');
+    alert = 'Fertilidade crescente';
+    reason = 'Muco aquoso detectado. Fertilidade em progressão — ovulação pode estar próxima.';
+    safetyNote = 'Período potencialmente fértil. Observe a evolução dos próximos dias.';
+    return { alert, reason, sources, safetyNote };
+  }
+
+  if (log?.mucus === 'creamy') {
+    sources.push('muco cremoso');
+    alert = 'Início fértil possível';
+    reason = 'Muco cremoso detectado. Fertilidade começando a crescer.';
+    safetyNote = 'Baixo a médio risco relativo. Continue observando.';
+    return { alert, reason, sources, safetyNote };
+  }
+
+  if (log?.mucus === 'sticky') {
+    sources.push('muco pegajoso');
+    alert = 'Possível início fértil';
+    reason = 'Muco pegajoso detectado. Possível início do período fértil.';
+    safetyNote = 'Continue as observações diárias. Período ainda incerto.';
+    return { alert, reason, sources, safetyNote };
+  }
+
+  // 5. Inconsistência térmica
+  if (thermalInconsistency) {
+    sources.push('temperatura registrada');
+    alert = 'Possível inconsistência térmica';
+    reason = 'A temperatura de hoje está isoladamente alta em relação aos dias adjacentes. Pode indicar fator perturbador (febre, álcool, sono insuficiente).';
+    safetyNote = 'Verifique se houve fator perturbador. Este dia pode ser desconsiderado no gráfico de temperatura.';
+    return { alert, reason, sources, safetyNote };
+  }
+
+  // 6. Cálculo por calendário
+  const cycleStarts = findCycleStartsLocal(logs);
+  if (cycleStarts.length > 0) {
+    const avgCycle = calcAvgLocal(cycleStarts, cycleLength);
+    const lastStart = cycleStarts[cycleStarts.length - 1];
+    const dayOfCycle = differenceInDays(parseISO(date), parseISO(lastStart)) + 1; // 1-indexed
+    const ranges = getCycleRangesLocal(avgCycle);
+    sources.push(`histórico de ${cycleStarts.length} ciclo(s)`);
+    sources.push(`ciclo médio: ${avgCycle} dias`);
+
+    if (dayOfCycle > 0 && dayOfCycle <= avgCycle + 7) {
+      const fertileStartDay = ranges.fertileStart + 1;
+      const fertileEndDay   = ranges.fertileEnd + 1;
+      const ovDay           = ranges.ovulationDay + 1;
+
+      if (dayOfCycle >= fertileStartDay && dayOfCycle <= fertileEndDay) {
+        alert = dayOfCycle >= ovDay - 1 && dayOfCycle <= ovDay + 1
+          ? 'Ovulação provável (calendário)'
+          : 'Janela fértil estimada (calendário)';
+        reason = `Dia ${dayOfCycle} de um ciclo estimado em ${avgCycle} dias. Janela fértil calculada: dias ${fertileStartDay}–${fertileEndDay} (ovulação esperada no dia ${ovDay}). Inclui margem de segurança de ±2 dias.`;
+        safetyNote = 'Estimativa baseada em calendário. Sinais biológicos têm prioridade. Dados insuficientes para confirmação precisa.';
+      } else if (dayOfCycle > ranges.fertileEnd + 1) {
+        alert = 'Pós-ovulatório estimado (calendário)';
+        reason = `Dia ${dayOfCycle} do ciclo. Janela fértil estimada já passou (dias ${fertileStartDay}–${fertileEndDay}). Fase lútea provável.`;
+        safetyNote = 'Baixo risco relativo estimado por calendário. Confirme com sinais biológicos.';
+      } else {
+        alert = 'Baixa fertilidade relativa (calendário)';
+        reason = `Dia ${dayOfCycle} do ciclo — fase pré-fértil estimada. Janela fértil começa por volta do dia ${fertileStartDay}.`;
+        safetyNote = 'Risco relativo baixo estimado. Continue os registros diários para maior precisão.';
+      }
+      return { alert, reason, sources, safetyNote };
+    }
+  }
+
+  // 7. Dados insuficientes
+  sources.push('nenhum sinal registrado hoje');
+  alert = 'Dados insuficientes';
+  reason = 'Nenhum sinal biológico registrado para este dia. Registre muco, sensação e temperatura para uma análise mais precisa.';
+  safetyNote = 'Na dúvida, considere-se fértil.';
+  return { alert, reason, sources, safetyNote };
+}
   'pred-menstrual':     '#E08C8C',
   'pred-proliferative': '#9BB694',
   'pred-ovulatory':     '#F4D06F',
