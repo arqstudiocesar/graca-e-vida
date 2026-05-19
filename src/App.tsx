@@ -622,6 +622,8 @@ function buildFertilityInsight(
   safetyNote = 'Na dúvida, considere-se fértil.';
   return { alert, reason, sources, safetyNote };
 }
+
+const PRED_COLORS: Record<PredictedPhase, string> = {
   'pred-menstrual':     '#E08C8C',
   'pred-proliferative': '#9BB694',
   'pred-ovulatory':     '#F4D06F',
@@ -635,39 +637,92 @@ const PRED_LABELS: Record<PredictedPhase, string> = {
   'pred-luteal':        'Pós-Ovulatório (est.)',
 };
 
-// FIX 2 — CALENDÁRIO: usa format(day,'yyyy-MM-dd') para evitar bug de fuso horário
-// e adiciona células vazias para alinhar o primeiro dia da semana corretamente.
+// CALENDÁRIO INTELIGENTE — mostra fases previstas mesmo sem registros anteriores
 function Calendar({ logs, onDateSelect, cycleLength }: { logs: DailyLog[], onDateSelect: (d: string) => void, cycleLength?: number }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(currentMonth);
+  const monthEnd   = endOfMonth(currentMonth);
   const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
-
-  // getDay(): 0=Dom,1=Seg,...,6=Sáb — alinha ao cabeçalho Dom/Seg/.../Sáb
   const firstDayOfWeek = monthStart.getDay();
+  const fallbackCycle = cycleLength || 28;
 
-  // Previsões calculadas uma vez por render (memoização simples via useMemo seria ideal,
-  // mas para não alterar imports usamos direto — o cálculo é leve)
-  const predictions = buildCyclePredictions(logs, cycleLength || 28);
+  // ── Previsões baseadas em registros ──────────────────────────────────────────
+  const predictions = buildCyclePredictions(logs, fallbackCycle);
 
-  // Resumo do ciclo atual para exibir abaixo do calendário
-  const lastMenstrualStart = findCycleStartsLocal(logs).slice(-1)[0] || null;
-  const avgCycle = calcAvgLocal(findCycleStartsLocal(logs), cycleLength || 28);
-  const cycleRanges = getCycleRangesLocal(avgCycle);
+  // ── Fallback: se não há registros, gerar previsão a partir de hoje ──────────
+  // Isso garante que o calendário nunca ficará vazio de cores.
+  const hasPredictions = Object.keys(predictions).length > 0;
+  const fallbackPredictions: Record<string, PredictedPhase> = {};
+  if (!hasPredictions) {
+    const today = new Date();
+    const ranges = getCycleRangesLocal(fallbackCycle);
+    // Assume que hoje é o "dia atual" dentro de um ciclo hipotético iniciado há alguns dias
+    // Usa o 1º dia do mês atual como referência de início de ciclo para visualização
+    const refStart = startOfMonth(currentMonth);
+    for (let d = 0; d < fallbackCycle * 2; d++) {
+      const date = format(addDays(refStart, d), 'yyyy-MM-dd');
+      const dayInCycle = d % fallbackCycle;
+      let phase: PredictedPhase;
+      if (dayInCycle <= ranges.menstrualEnd)                                   phase = 'pred-menstrual';
+      else if (dayInCycle >= ranges.fertileStart && dayInCycle <= ranges.fertileEnd) phase = 'pred-ovulatory';
+      else if (dayInCycle > ranges.fertileEnd)                                  phase = 'pred-luteal';
+      else                                                                       phase = 'pred-proliferative';
+      fallbackPredictions[date] = phase;
+    }
+  }
 
-  // Datas absolutas das fases (a partir do último início de ciclo)
-  const ovulationDateStr = lastMenstrualStart
-    ? format(addDays(parseISO(lastMenstrualStart), cycleRanges.ovulationDay), 'dd/MM')
-    : null;
-  const fertileStartStr = lastMenstrualStart
-    ? format(addDays(parseISO(lastMenstrualStart), cycleRanges.fertileStart), 'dd/MM')
-    : null;
-  const fertileEndStr = lastMenstrualStart
-    ? format(addDays(parseISO(lastMenstrualStart), cycleRanges.fertileEnd), 'dd/MM')
-    : null;
-  const nextMenstruationDate = lastMenstrualStart
-    ? format(addDays(parseISO(lastMenstrualStart), avgCycle), 'dd/MM/yyyy')
-    : null;
+  const effectivePredictions = hasPredictions ? predictions : fallbackPredictions;
+
+  // ── Dados para o painel de resumo ────────────────────────────────────────────
+  const cycleStarts    = findCycleStartsLocal(logs);
+  const avgCycle       = calcAvgLocal(cycleStarts, fallbackCycle);
+  const lastStart      = cycleStarts[cycleStarts.length - 1] || null;
+  const cycleRanges    = getCycleRangesLocal(avgCycle);
+
+  // Fases do ciclo ATUAL em datas absolutas (a partir do último início)
+  const refDate = lastStart ? parseISO(lastStart) : startOfMonth(currentMonth);
+  const phaseBlocks = [
+    {
+      label: 'Menstruação',
+      color: '#E08C8C',
+      start: format(addDays(refDate, 0), 'dd/MM'),
+      end:   format(addDays(refDate, cycleRanges.menstrualEnd), 'dd/MM'),
+      icon: '🔴',
+    },
+    {
+      label: 'Infértil Inicial',
+      color: '#9BB694',
+      start: format(addDays(refDate, cycleRanges.menstrualEnd + 1), 'dd/MM'),
+      end:   format(addDays(refDate, cycleRanges.fertileStart - 1), 'dd/MM'),
+      icon: '🟢',
+    },
+    {
+      label: 'Janela Fértil',
+      color: '#F4D06F',
+      start: format(addDays(refDate, cycleRanges.fertileStart), 'dd/MM'),
+      end:   format(addDays(refDate, cycleRanges.fertileEnd), 'dd/MM'),
+      icon: '🟡',
+    },
+    {
+      label: `Ovulação Est. (ápice)`,
+      color: '#F0A050',
+      start: format(addDays(refDate, cycleRanges.ovulationDay), 'dd/MM'),
+      end:   format(addDays(refDate, cycleRanges.ovulationDay), 'dd/MM'),
+      icon: '🌸',
+    },
+    {
+      label: 'Pós-Ovulatório',
+      color: '#81A4CD',
+      start: format(addDays(refDate, cycleRanges.fertileEnd + 1), 'dd/MM'),
+      end:   format(addDays(refDate, avgCycle - 1), 'dd/MM'),
+      icon: '🔵',
+    },
+  ];
+
+  const nextCycleDate    = format(addDays(refDate, avgCycle), 'dd/MM/yyyy');
+  const ovulationDateStr = format(addDays(refDate, cycleRanges.ovulationDay), 'dd/MM');
+  const fertileStartStr  = format(addDays(refDate, cycleRanges.fertileStart), 'dd/MM');
+  const fertileEndStr    = format(addDays(refDate, cycleRanges.fertileEnd), 'dd/MM');
 
   return (
     <div className="space-y-6">
@@ -684,59 +739,110 @@ function Calendar({ logs, onDateSelect, cycleLength }: { logs: DailyLog[], onDat
         </div>
       </header>
 
-      <div className="bg-white p-8 rounded-[40px] shadow-soft border border-brand-olive/5">
-        <div className="grid grid-cols-7 gap-2 text-center mb-6">
-          {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (
-            <span key={d} className="text-[11px] font-bold text-brand-muted uppercase tracking-widest leading-loose">{d}</span>
+      {/* Painel de fases previstas do ciclo — sempre visível */}
+      <div className="bg-white p-5 rounded-[28px] shadow-soft border border-brand-olive/5">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-muted">
+            Fases Previstas · Ciclo de {avgCycle} dias
+          </p>
+          {!lastStart && (
+            <span className="text-[9px] italic text-brand-muted/60 font-serif">
+              sem registros — previsão modelo
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-1 gap-2">
+          {phaseBlocks.map(block => (
+            <div key={block.label} className="flex items-center gap-3 p-2.5 rounded-xl border border-black/[0.04]" style={{ backgroundColor: `${block.color}12` }}>
+              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: block.color }} />
+              <span className="text-[10px] font-bold uppercase tracking-wider flex-1" style={{ color: block.color }}>{block.label}</span>
+              <span className="text-[10px] font-serif text-brand-muted italic">
+                {block.start === block.end ? block.start : `${block.start} – ${block.end}`}
+              </span>
+            </div>
           ))}
         </div>
-        <div className="grid grid-cols-7 gap-3">
-          {/* Células vazias para alinhar o primeiro dia */}
+        <div className="mt-4 grid grid-cols-3 gap-3 text-center border-t border-black/5 pt-4">
+          <div>
+            <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Ápice Est.</p>
+            <p className="text-base font-serif text-brand-olive italic">{ovulationDateStr}</p>
+          </div>
+          <div>
+            <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Janela Fértil</p>
+            <p className="text-[11px] font-serif text-brand-olive italic">{fertileStartStr} – {fertileEndStr}</p>
+          </div>
+          <div>
+            <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Próx. Ciclo</p>
+            <p className="text-[11px] font-serif text-brand-olive italic">{nextCycleDate}</p>
+          </div>
+        </div>
+        <p className="text-[9px] italic text-brand-muted/40 mt-3 font-serif text-center">
+          ±{CYCLE_SAFETY_MARGIN} dias de margem · {lastStart ? 'Baseado nos seus registros' : 'Insira registros de menstruação para personalizar'}
+        </p>
+      </div>
+
+      {/* Grade do calendário */}
+      <div className="bg-white p-5 rounded-[40px] shadow-soft border border-brand-olive/5">
+        <div className="grid grid-cols-7 gap-1 text-center mb-4">
+          {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (
+            <span key={d} className="text-[10px] font-bold text-brand-muted uppercase tracking-wider leading-loose">{d}</span>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1.5">
           {Array.from({ length: firstDayOfWeek }).map((_, i) => <div key={`e${i}`} />)}
 
           {days.map(day => {
-            // format() usa hora local, evitando o bug de UTC que causava dia errado
-            const dateStr = format(day, 'yyyy-MM-dd');
-            const hasLog = logs.some(l => l.date === dateStr);
-            const status = getFertilityStatus(logs, dateStr);
-            const confirmedColor = hasLog ? FERTILITY_COLORS[status] : undefined;
-            const predicted = !hasLog ? predictions[dateStr] : undefined;
-            const predictedColor = predicted ? PRED_COLORS[predicted] : undefined;
+            const dateStr         = format(day, 'yyyy-MM-dd');
+            const hasLog          = logs.some(l => l.date === dateStr);
+            const status          = getFertilityStatus(logs, dateStr);
+            const confirmedColor  = hasLog ? FERTILITY_COLORS[status] : undefined;
+            const predicted       = effectivePredictions[dateStr];
+            const predictedColor  = predicted ? PRED_COLORS[predicted] : undefined;
+            const dayLog          = logs.find(l => l.date === dateStr);
+            const isPeakDay       = dayLog?.isPeak;
+            // Marcar o dia de ovulação previsto visualmente
+            const isEstOvulation  = predicted === 'pred-ovulatory' &&
+              lastStart &&
+              format(addDays(parseISO(lastStart), cycleRanges.ovulationDay), 'yyyy-MM-dd') === dateStr;
 
             return (
               <button
                 key={dateStr}
                 onClick={() => onDateSelect(dateStr)}
                 className={cn(
-                  "aspect-square rounded-2xl flex items-center justify-center text-[15px] transition-all relative group",
-                  isToday(day) ? "ring-2 ring-brand-olive ring-offset-4 ring-offset-white z-10" : "",
+                  "aspect-square rounded-xl flex flex-col items-center justify-center text-[14px] transition-all relative",
+                  isToday(day) ? "ring-2 ring-brand-olive ring-offset-2 ring-offset-white z-10" : "",
                   hasLog
-                    ? "text-white shadow-lg"
+                    ? "text-white shadow-md"
                     : predicted
-                    ? "border border-black/[0.03]"
-                    : "bg-brand-page text-brand-text/60 border border-black/[0.03] hover:border-brand-olive/20"
+                    ? "hover:opacity-90"
+                    : "bg-brand-page/60 text-brand-text/40 hover:bg-brand-page"
                 )}
                 style={
                   hasLog
-                    ? { backgroundColor: confirmedColor, boxShadow: `0 8px 16px ${confirmedColor}30` }
+                    ? { backgroundColor: confirmedColor, boxShadow: `0 4px 12px ${confirmedColor}40` }
                     : predicted
-                    ? { backgroundColor: `${predictedColor}28`, borderColor: `${predictedColor}40` }
+                    ? { backgroundColor: `${predictedColor}35`, border: `1px solid ${predictedColor}55` }
                     : {}
                 }
               >
                 <span className={cn(
-                  "font-medium",
-                  hasLog ? "font-bold text-white" : predicted ? "font-sans opacity-80 text-brand-text/70" : "font-sans opacity-70"
+                  "text-[13px] leading-none",
+                  hasLog ? "font-bold text-white" : predicted ? "font-semibold text-brand-text/75" : "font-normal opacity-50"
                 )}>
                   {format(day, 'd')}
                 </span>
-                {/* Ponto de confirmação de ápice */}
-                {hasLog && logs.find(l => l.date === dateStr)?.isPeak && (
-                  <div className="absolute top-2 right-2 w-2 h-2 bg-white/80 rounded-full shadow-sm border border-black/10" />
+                {/* Ponto branco = ápice confirmado */}
+                {isPeakDay && (
+                  <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-white rounded-full shadow-sm" />
                 )}
-                {/* Ponto de ovulação prevista */}
-                {predicted === 'pred-ovulatory' && (
-                  <div className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: `${predictedColor}90` }} />
+                {/* Diamante = ovulação estimada (pico da janela fértil) */}
+                {isEstOvulation && !hasLog && (
+                  <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full border border-yellow-500/70 bg-yellow-300/60" />
+                )}
+                {/* Barra inferior: intensidade do período fértil previsto */}
+                {predicted === 'pred-ovulatory' && !hasLog && (
+                  <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-3 h-0.5 rounded-full" style={{ backgroundColor: predictedColor }} />
                 )}
               </button>
             );
@@ -744,54 +850,36 @@ function Calendar({ logs, onDateSelect, cycleLength }: { logs: DailyLog[], onDat
         </div>
       </div>
 
-      {/* Resumo inteligente do ciclo */}
-      {lastMenstrualStart && (
-        <div className="bg-white p-6 rounded-[28px] shadow-soft border border-brand-olive/5">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-muted mb-4">Previsão do Ciclo · Ciclo de {avgCycle} dias</p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Duração Est.</p>
-              <p className="text-xl font-serif text-brand-olive italic">{avgCycle}<span className="text-xs ml-0.5 opacity-60">d</span></p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Janela Fértil</p>
-              <p className="text-base font-serif text-brand-olive italic leading-tight">{fertileStartStr} – {fertileEndStr}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Ovulação Est.</p>
-              <p className="text-xl font-serif text-brand-olive italic">{ovulationDateStr}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-widest text-brand-muted font-bold">Próx. Ciclo</p>
-              <p className="text-base font-serif text-brand-olive italic leading-tight">{nextMenstruationDate}</p>
-            </div>
-          </div>
-          <p className="text-[9px] italic text-brand-muted/50 mt-4 font-serif text-center">
-            Janela fértil calculada com margem de segurança de ±{CYCLE_SAFETY_MARGIN} dias · Baseada nos seus registros reais
-          </p>
-        </div>
-      )}
-
-      {/* Legenda */}
-      <div className="space-y-3">
+      {/* Legenda compacta */}
+      <div className="space-y-2">
         <p className="text-[10px] font-bold uppercase tracking-widest text-brand-muted px-1">Legenda</p>
         <div className="grid grid-cols-2 gap-2">
-          {/* Confirmados */}
-          {Object.entries({ 'menstrual': 'Menstruação', 'infertile': 'Infértil', 'potentially-fertile': 'Fértil', 'post-ovulatory': 'Pós-Ovulatório' }).map(([status, label]) => (
-            <div key={status} className="flex items-center gap-2 bg-white py-2 px-3 rounded-xl shadow-sm border border-black/5">
-              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: FERTILITY_COLORS[status as keyof typeof FERTILITY_COLORS] }} />
-              <span className="text-[9px] text-brand-muted font-bold uppercase tracking-wider leading-tight">{label}</span>
+          <div className="col-span-2">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-brand-muted/70 mb-1.5 px-1">Confirmados (seus registros)</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {([ ['menstrual','Menstruação'], ['potentially-fertile','Fértil'], ['high-fertility','Alta Fertilidade'], ['post-ovulatory','Pós-Ovulatório'], ['infertile','Infértil'] ] as [keyof typeof FERTILITY_COLORS, string][]).map(([status, label]) => (
+                <div key={status} className="flex items-center gap-2 bg-white py-2 px-3 rounded-xl border border-black/[0.04]">
+                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: FERTILITY_COLORS[status] }} />
+                  <span className="text-[9px] text-brand-muted font-bold uppercase tracking-wider leading-tight">{label}</span>
+                </div>
+              ))}
             </div>
-          ))}
-          {/* Previstos */}
-          {(Object.entries(PRED_LABELS) as [PredictedPhase, string][]).map(([phase, label]) => (
-            <div key={phase} className="flex items-center gap-2 bg-white py-2 px-3 rounded-xl border border-black/5">
-              <div className="w-3 h-3 rounded-full flex-shrink-0 border-2" style={{ backgroundColor: `${PRED_COLORS[phase]}40`, borderColor: PRED_COLORS[phase] }} />
-              <span className="text-[9px] text-brand-muted font-bold uppercase tracking-wider leading-tight">{label}</span>
+          </div>
+          <div className="col-span-2 mt-1">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-brand-muted/70 mb-1.5 px-1">Estimativas automáticas (translúcidas)</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(Object.entries(PRED_LABELS) as [PredictedPhase, string][]).map(([phase, label]) => (
+                <div key={phase} className="flex items-center gap-2 bg-white py-2 px-3 rounded-xl border border-black/[0.04]">
+                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 border-2" style={{ backgroundColor: `${PRED_COLORS[phase]}50`, borderColor: PRED_COLORS[phase] }} />
+                  <span className="text-[9px] text-brand-muted font-bold uppercase tracking-wider leading-tight">{label}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
-        <p className="text-[9px] italic text-brand-muted/60 px-1 font-serif">Dias sólidos = confirmados por você · Dias translúcidos = estimativas automáticas</p>
+        <p className="text-[9px] italic text-brand-muted/50 px-1 font-serif">
+          Círculo branco no canto = ápice confirmado · Ponto amarelo = ovulação estimada
+        </p>
       </div>
     </div>
   );
