@@ -653,17 +653,23 @@ function buildCalendarMap(
 ): Record<string, CycleDayInfo> {
   const cycleStarts = findCycleStartsLocal(logs);
   const avgCycle    = calcAvgLocal(cycleStarts, fallbackCycle);
-  const lastStart   = cycleStarts.length > 0
+
+  // Se não há registros, usar o 1º dia do mês corrente como início de ciclo modelo
+  // para que o calendário sempre mostre um ciclo visual completo.
+  const today = new Date();
+  const modelStart = cycleStarts.length > 0
     ? parseISO(cycleStarts[cycleStarts.length - 1])
-    : new Date();
+    : new Date(today.getFullYear(), today.getMonth(), 1);
+
   const ranges = getCycleRangesLocal(avgCycle);
   const ovDay  = ranges.ovulationDay;
   const fStart = ranges.fertileStart;
   const fEnd   = ranges.fertileEnd;
   const map: Record<string, CycleDayInfo> = {};
 
-  for (let cycleOffset = -2; cycleOffset <= 3; cycleOffset++) {
-    const cycleStart = addDays(lastStart, cycleOffset * avgCycle);
+  // Cobrir 4 ciclos para frente e 2 atrás — garante qualquer mês navegado
+  for (let cycleOffset = -2; cycleOffset <= 4; cycleOffset++) {
+    const cycleStart = addDays(modelStart, cycleOffset * avgCycle);
     for (let d = 0; d < avgCycle; d++) {
       const date = format(addDays(cycleStart, d), 'yyyy-MM-dd');
       const log  = logs.find(l => l.date === date);
@@ -737,12 +743,28 @@ function Calendar({ logs, onDateSelect, cycleLength }: {
   const cycleStarts      = findCycleStartsLocal(logs);
   const avgCycle         = calcAvgLocal(cycleStarts, fallbackCycle);
   const hasRealData      = cycleStarts.length > 0;
-  const lastStart        = hasRealData ? parseISO(cycleStarts[cycleStarts.length - 1]) : startOfMonth(currentMonth);
+  // Mesma lógica do buildCalendarMap: usa hoje/1º do mês como modelo se sem registros
+  const today0           = new Date();
+  const modelRef         = hasRealData
+    ? parseISO(cycleStarts[cycleStarts.length - 1])
+    : new Date(today0.getFullYear(), today0.getMonth(), 1);
+  const lastStart        = modelRef;
   const ranges           = getCycleRangesLocal(avgCycle);
   const ovulationDateStr = format(addDays(lastStart, ranges.ovulationDay), 'dd/MM');
   const fertileStartStr  = format(addDays(lastStart, ranges.fertileStart), 'dd/MM');
   const fertileEndStr    = format(addDays(lastStart, ranges.fertileEnd), 'dd/MM');
   const nextCycleDate    = format(addDays(lastStart, avgCycle), 'dd/MM/yyyy');
+
+  // Estatísticas históricas
+  const cycleDurations: number[] = [];
+  for (let i = 1; i < cycleStarts.length; i++) {
+    const d = differenceInDays(parseISO(cycleStarts[i]), parseISO(cycleStarts[i-1]));
+    if (d >= 21 && d <= 45) cycleDurations.push(d);
+  }
+  const minCycle  = cycleDurations.length > 0 ? Math.min(...cycleDurations) : null;
+  const maxCycle  = cycleDurations.length > 0 ? Math.max(...cycleDurations) : null;
+  const variation = minCycle !== null && maxCycle !== null ? maxCycle - minCycle : null;
+  const isIrregular = variation !== null && variation > 7;
 
   const phaseBlocks = [
     { label: 'Menstruação',          color: PHASE_COLORS['menstrual'],        start: format(addDays(lastStart, 0), 'dd/MM'),                      end: format(addDays(lastStart, ranges.menstrualEnd), 'dd/MM') },
@@ -803,6 +825,32 @@ function Calendar({ logs, onDateSelect, cycleLength }: {
         <p className="text-[8px] italic text-brand-muted/40 mt-2 font-serif text-center">
           ±{CYCLE_SAFETY_MARGIN} dias de margem · {hasRealData ? 'Baseado nos seus registros' : 'Registre menstruação para personalizar'}
         </p>
+        {/* Estatísticas históricas */}
+        {cycleDurations.length >= 2 && (
+          <div className="mt-3 border-t border-black/5 pt-3 grid grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="text-[8px] uppercase tracking-widest text-brand-muted font-bold mb-0.5">Menor Ciclo</p>
+              <p className="text-[13px] font-serif italic text-brand-olive">{minCycle}d</p>
+            </div>
+            <div>
+              <p className="text-[8px] uppercase tracking-widest text-brand-muted font-bold mb-0.5">Maior Ciclo</p>
+              <p className="text-[13px] font-serif italic text-brand-olive">{maxCycle}d</p>
+            </div>
+            <div>
+              <p className="text-[8px] uppercase tracking-widest text-brand-muted font-bold mb-0.5">Variação</p>
+              <p className={`text-[13px] font-serif italic ${isIrregular ? 'text-red-400' : 'text-brand-olive'}`}>{variation}d</p>
+            </div>
+          </div>
+        )}
+        {/* Alerta de ciclo irregular */}
+        {isIrregular && (
+          <div className="mt-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200/60">
+            <p className="text-[9px] font-bold text-amber-700 uppercase tracking-wider">⚠️ Ciclo irregular detectado</p>
+            <p className="text-[9px] text-amber-600/80 font-serif italic mt-0.5">
+              Variação de {variation} dias. Priorize os sinais biológicos diários — o calendário sozinho não é suficiente.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Grade do calendário */}
@@ -856,10 +904,12 @@ function Calendar({ logs, onDateSelect, cycleLength }: {
 
             // Bordas especiais
             const borderStyle: React.CSSProperties = {};
-            if (!isSolid && isSafetyMargin) {
+            if (!isSolid && isOvulationDay) {
+              // Ápice: borda laranja forte + sublinhado
+              borderStyle.border      = `2.5px solid ${PHASE_COLORS['ovulation']}EE`;
+              borderStyle.boxShadow   = `0 0 8px ${PHASE_COLORS['ovulation']}40`;
+            } else if (!isSolid && isSafetyMargin) {
               borderStyle.border = `1.5px dashed ${bgHex}99`;
-            } else if (!isSolid && isOvulationDay) {
-              borderStyle.border = `2px solid ${PHASE_COLORS['ovulation']}CC`;
             } else if (!isSolid && bgHex) {
               borderStyle.border = `1px solid ${bgHex}55`;
             }
@@ -896,10 +946,14 @@ function Calendar({ logs, onDateSelect, cycleLength }: {
                 {/* Ponto branco = ápice confirmado */}
                 {isPeak && <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-white rounded-full shadow-sm z-20" />}
 
-                {/* Bola laranja = ovulação estimada */}
+                {/* Bola laranja = ovulação estimada + sublinhado de ápice */}
                 {isOvulationDay && !hasLog && (
-                  <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full z-20"
-                    style={{ backgroundColor: PHASE_COLORS['ovulation'] }} />
+                  <>
+                    <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full z-20"
+                      style={{ backgroundColor: PHASE_COLORS['ovulation'] }} />
+                    <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-4 h-0.5 rounded-full z-20"
+                      style={{ backgroundColor: PHASE_COLORS['ovulation'] }} />
+                  </>
                 )}
 
                 {/* Barrinha de intensidade fértil na base */}
