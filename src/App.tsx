@@ -70,28 +70,61 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showTutorial, setShowTutorial] = useState(false);
 
+  // ── Carregar dados ao iniciar — persiste mesmo fechando/reabrindo o app ──────
   useEffect(() => {
-    const savedLogs = localStorage.getItem(STORAGE_KEY_LOGS);
-    const savedProfile = localStorage.getItem(STORAGE_KEY_PROFILE);
-    if (savedLogs) try { setLogs(JSON.parse(savedLogs)); } catch (e) {}
-    if (savedProfile) {
-      try {
-        const parsed = JSON.parse(savedProfile);
-        setProfile({ ...INITIAL_PROFILE, ...parsed });
-        if (!parsed.tutorialCompleted) setShowTutorial(true);
-      } catch (e) {}
-    } else {
-      setShowTutorial(true);
+    try {
+      const savedLogs    = localStorage.getItem(STORAGE_KEY_LOGS);
+      const savedProfile = localStorage.getItem(STORAGE_KEY_PROFILE);
+
+      if (savedLogs) {
+        const parsed = JSON.parse(savedLogs);
+        if (Array.isArray(parsed)) setLogs(parsed);
+      }
+
+      if (savedProfile) {
+        try {
+          const parsed = JSON.parse(savedProfile);
+          setProfile(prev => ({ ...prev, ...parsed }));
+          if (!parsed.tutorialCompleted) setShowTutorial(true);
+        } catch { setShowTutorial(true); }
+      } else {
+        setShowTutorial(true);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar dados salvos:', e);
     }
   }, []);
 
-  useEffect(() => { localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(logs)); }, [logs]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile)); }, [profile]);
+  // ── Salvar logs sempre que mudarem ──────────────────────────────────────────
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(logs));
+    } catch (e) {
+      console.warn('Erro ao salvar logs:', e);
+    }
+  }, [logs]);
+
+  // ── Salvar perfil sempre que mudar ─────────────────────────────────────────
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
+    } catch (e) {
+      console.warn('Erro ao salvar perfil:', e);
+    }
+  }, [profile]);
 
   const handleSaveLog = (newLog: DailyLog) => {
+    // Auto-detectar Dia 1: sangramento intenso/médio = início de ciclo real
+    // (escape/leve NÃO conta como Dia 1 — regra principal do ciclo)
+    const autoIsCycleStart =
+      newLog.bleeding === 'heavy' || newLog.bleeding === 'medium'
+        ? true
+        : newLog.isCycleStart || false;
+    const logToSave = { ...newLog, isCycleStart: autoIsCycleStart };
+
     setLogs(prev => {
-      const filtered = prev.filter(l => l.date !== newLog.date);
-      return [...filtered, newLog].sort((a, b) => a.date.localeCompare(b.date));
+      const filtered = prev.filter(l => l.date !== logToSave.date);
+      return [...filtered, logToSave].sort((a, b) => a.date.localeCompare(b.date));
     });
     setActiveTab('dashboard');
   };
@@ -390,17 +423,29 @@ function getCycleRangesLocal(cycleLength: number) {
 function findCycleStartsLocal(logs: DailyLog[]): string[] {
   const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date));
   const starts: string[] = [];
+
   for (let i = 0; i < sorted.length; i++) {
     const log = sorted[i];
-    if (log.bleeding === 'heavy' || log.bleeding === 'medium') {
-      const prev = sorted[i - 1];
-      const gap  = prev ? differenceInDays(parseISO(log.date), parseISO(prev.date)) : 99;
-      const prevBleeding = prev && prev.bleeding && prev.bleeding !== 'none';
-      if (!prevBleeding || gap > 4) {
-        const lastStart = starts[starts.length - 1];
-        if (!lastStart || differenceInDays(parseISO(log.date), parseISO(lastStart)) >= 18) {
-          starts.push(log.date);
-        }
+
+    // Regra 1: marcado explicitamente pelo usuário como Dia 1
+    const explicitStart = (log as any).isCycleStart === true;
+
+    // Regra 2: sangramento intenso/médio (fluxo verdadeiro) após pausa de ≥4 dias
+    // IGNORA: leve/spotting (escape, borra) — esses NÃO contam como Dia 1
+    const isTrueBleed = log.bleeding === 'heavy' || log.bleeding === 'medium';
+    const prev        = sorted[i - 1];
+    const gap         = prev ? differenceInDays(parseISO(log.date), parseISO(prev.date)) : 99;
+    const prevBleeding = prev && (prev.bleeding === 'heavy' || prev.bleeding === 'medium');
+    const isNewFlow   = isTrueBleed && (!prevBleeding || gap > 4);
+
+    if (explicitStart || isNewFlow) {
+      const lastStart = starts[starts.length - 1];
+      // Evitar dois inícios muito próximos (< 18 dias)
+      if (!lastStart || differenceInDays(parseISO(log.date), parseISO(lastStart)) >= 18) {
+        starts.push(log.date);
+      } else if (explicitStart) {
+        // Marcação explícita do usuário sobrepõe o último início se mais recente
+        starts[starts.length - 1] = log.date;
       }
     }
   }
@@ -1024,11 +1069,18 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
   const methodInfo = METHODS.find(m => m.id === selectedMethod) || METHODS[0];
   const fields = methodInfo.requiredFields;
 
-  const [log, setLog] = useState<DailyLog>(existingLog || {
+  const [log, setLog] = useState<DailyLog & { isCycleStart?: boolean }>(existingLog || {
     date: initialDate, mucus: 'none', sensation: 'not_observed', bleeding: 'none', notes: '',
+    isCycleStart: false,
   });
   const [activeHelp, setActiveHelp] = useState<string | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+
+  // Sincronizar isCycleStart quando bleeding muda
+  const handleBleedingChange = (value: string) => {
+    const autoStart = value === 'heavy' || value === 'medium';
+    setLog(prev => ({ ...prev, bleeding: value as any, isCycleStart: autoStart }));
+  };
 
   const isBleeding = log.bleeding && log.bleeding !== 'none';
 
@@ -1102,7 +1154,7 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
             </div>
             <div className="flex flex-wrap gap-2">
               {bleedingOptions.map(opt => (
-                <button key={opt.id} onClick={() => setLog({ ...log, bleeding: opt.id as any })}
+                <button key={opt.id} onClick={() => handleBleedingChange(opt.id)}
                   className={cn("px-5 py-3 rounded-full text-xs font-medium transition-all border flex flex-col items-center gap-0.5",
                     log.bleeding === opt.id ? "bg-brand-terracotta text-white border-transparent shadow-md" : "bg-white text-brand-muted border-black/[0.05] hover:border-black/10")}>
                   <span>{opt.label}</span>
@@ -1110,6 +1162,41 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
                 </button>
               ))}
             </div>
+            {/* Indicador visual de Dia 1 do ciclo */}
+            {(log.bleeding === 'heavy' || log.bleeding === 'medium') && (
+              <div className="flex items-center gap-3 mt-3">
+                <div
+                  onClick={() => setLog(prev => ({ ...prev, isCycleStart: !(prev as any).isCycleStart }))}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3 rounded-2xl border cursor-pointer transition-all w-full",
+                    (log as any).isCycleStart
+                      ? "bg-brand-terracotta/10 border-brand-terracotta/30"
+                      : "bg-white border-black/[0.06] hover:border-brand-terracotta/20"
+                  )}
+                >
+                  <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all",
+                    (log as any).isCycleStart ? "bg-brand-terracotta border-brand-terracotta" : "border-black/15")}>
+                    {(log as any).isCycleStart && <div className="w-2 h-2 bg-white rounded-full" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className={cn("text-[11px] font-bold uppercase tracking-wider",
+                      (log as any).isCycleStart ? "text-brand-terracotta" : "text-brand-muted")}>
+                      ✦ Este é o Dia 1 do meu ciclo
+                    </p>
+                    <p className="text-[9px] italic text-brand-muted/70 font-serif mt-0.5">
+                      {(log as any).isCycleStart
+                        ? 'Marcado. O ciclo será recalculado a partir desta data.'
+                        : 'Toque para confirmar que este é o primeiro dia de fluxo verdadeiro.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            {log.bleeding === 'light' && (
+              <p className="text-[9px] italic text-brand-muted/60 font-serif mt-2 px-1">
+                ⚠️ Fluxo leve (escape/mancha) não conta como Dia 1 do ciclo.
+              </p>
+            )}
           </section>
         )}
 
