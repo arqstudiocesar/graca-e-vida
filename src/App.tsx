@@ -70,60 +70,64 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // ── Flag: bloqueia os effects de persistência antes do carregamento inicial ──
-  // Sem isso, o useEffect de salvar dispara com [] antes de carregar os dados,
-  // sobrescrevendo o localStorage com uma lista vazia.
-  const initialLoadDone = React.useRef(false);
+  // ── Flag de hidratação com useState (NÃO useRef) ─────────────────────────────
+  // useRef é SÍNCRONO: se usar useRef, o effect de carga define .current=true e
+  // os outros effects da MESMA renderização já veem true e sobrescrevem
+  // localStorage com os estados vazios iniciais — apagando tudo.
+  // Com useState: na 1ª renderização isHydrated=false (effects de save não rodam).
+  // Após setIsHydrated(true) o React faz nova renderização com dados carregados
+  // E isHydrated=true, aí os effects de save rodam com os dados corretos.
+  const [isHydrated, setIsHydrated] = useState(false);
 
   // ── CARREGAMENTO INICIAL — restaura todos os dados ao abrir/reabrir o app ───
   useEffect(() => {
+    let logsLoaded: DailyLog[] = [];
+    let profileLoaded: UserProfile = INITIAL_PROFILE;
+    let shouldShowTutorial = false;
     try {
-      const savedLogs    = localStorage.getItem(STORAGE_KEY_LOGS);
-      const savedProfile = localStorage.getItem(STORAGE_KEY_PROFILE);
-
-      if (savedLogs) {
-        const parsed = JSON.parse(savedLogs);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setLogs(parsed);
-        }
-      }
-
-      if (savedProfile) {
+      const rawLogs    = localStorage.getItem(STORAGE_KEY_LOGS);
+      const rawProfile = localStorage.getItem(STORAGE_KEY_PROFILE);
+      if (rawLogs) {
         try {
-          const parsed = JSON.parse(savedProfile);
-          setProfile(prev => ({ ...prev, ...parsed }));
-          if (!parsed.tutorialCompleted) setShowTutorial(true);
-        } catch { setShowTutorial(true); }
-      } else {
-        setShowTutorial(true);
+          const parsed = JSON.parse(rawLogs);
+          if (Array.isArray(parsed)) logsLoaded = parsed;
+        } catch (e) { console.warn('Erro ao parsear logs:', e); }
       }
-    } catch (e) {
-      console.warn('Erro ao carregar dados salvos:', e);
-    } finally {
-      // Libera a gravação apenas APÓS o carregamento terminar
-      initialLoadDone.current = true;
-    }
+      if (rawProfile) {
+        try {
+          const parsed = JSON.parse(rawProfile);
+          profileLoaded = { ...INITIAL_PROFILE, ...parsed };
+          shouldShowTutorial = !parsed.tutorialCompleted;
+        } catch (e) {
+          console.warn('Erro ao parsear perfil:', e);
+          shouldShowTutorial = true;
+        }
+      } else {
+        shouldShowTutorial = true;
+      }
+    } catch (e) { console.warn('Erro ao ler localStorage:', e); }
+
+    // Carrega todos os estados antes de liberar a persistência
+    setLogs(logsLoaded);
+    setProfile(profileLoaded);
+    if (shouldShowTutorial) setShowTutorial(true);
+    // Esta chamada causa nova renderização; somente nela os effects abaixo rodam
+    setIsHydrated(true);
   }, []);
 
-  // ── PERSISTÊNCIA: salva logs sempre que mudarem (após carregamento inicial) ──
+  // ── PERSISTÊNCIA DE LOGS (roda só após hidratação completa) ─────────────────
   useEffect(() => {
-    if (!initialLoadDone.current) return;
-    try {
-      localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(logs));
-    } catch (e) {
-      console.warn('Erro ao salvar logs:', e);
-    }
-  }, [logs]);
+    if (!isHydrated) return;
+    try { localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(logs)); }
+    catch (e) { console.warn('Erro ao salvar logs:', e); }
+  }, [logs, isHydrated]);
 
-  // ── PERSISTÊNCIA: salva perfil sempre que mudar (após carregamento inicial) ─
+  // ── PERSISTÊNCIA DE PERFIL (roda só após hidratação completa) ───────────────
   useEffect(() => {
-    if (!initialLoadDone.current) return;
-    try {
-      localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
-    } catch (e) {
-      console.warn('Erro ao salvar perfil:', e);
-    }
-  }, [profile]);
+    if (!isHydrated) return;
+    try { localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile)); }
+    catch (e) { console.warn('Erro ao salvar perfil:', e); }
+  }, [profile, isHydrated]);
 
   const handleSaveLog = (newLog: DailyLog) => {
     // ── REGRA: Dia 1 do ciclo = SOMENTE primeiro sangramento intenso/médio ──────
@@ -290,7 +294,7 @@ export default function App() {
 // DASHBOARD
 function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (date?: string) => void, profile: UserProfile }) {
   const today = new Date().toISOString().split('T')[0];
-  const todayStatus = getFertilityStatus(logs, today);
+  const todayStatus = getFertilityStatus(logs, today, profile.cycleLength);
   const todayLog = logs.find(l => l.date === today);
   const verseIndex = new Date().getDate() % BIBLE_VERSES.length;
   const verse = BIBLE_VERSES[verseIndex];
@@ -298,24 +302,97 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
   const statusLabel: Record<string, string> = {
     'menstrual': 'Fase Menstrual',
     'infertile': 'Fase Infértil',
-    'potentially-fertile': 'Fértil',
+    'potentially-fertile': 'Fertilidade Crescente',
     'high-fertility': 'Alta Fertilidade',
     'post-ovulatory': 'Pós-Ovulatório'
   };
 
   const color = FERTILITY_COLORS[todayStatus];
-  const recentLogs = logs.slice(-5).reverse();
+  const recentLogs = [...logs].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 5);
 
-  // Calcular dia atual do ciclo para exibição
-  const cycleStarts = findCycleStartsLocal(logs);
-  const avgCycle = calcAvgLocal(cycleStarts, profile.cycleLength || 28);
-  const lastCycleStart = cycleStarts[cycleStarts.length - 1];
+  // ── Motor de cálculo dinâmico do ciclo para o Dashboard ──────────────────────
+  // Usa os mesmos ajustes de buildCalendarMap: âncora no ápice + fim real da mens.
+  const cycleStarts   = findCycleStartsLocal(logs);
+  const fallbackCycle = profile.cycleLength || 28;
+  const avgCycle      = calcAvgLocal(cycleStarts, fallbackCycle);
+  const lastCycleStart = cycleStarts.length > 0 ? cycleStarts[cycleStarts.length - 1] : null;
+
+  // Ranges base (ovulação = ciclo - 14)
+  let cycleRanges = getCycleRangesLocal(avgCycle);
+
+  if (lastCycleStart) {
+    const cycleStartDate = parseISO(lastCycleStart);
+
+    // Ajuste A: fim real da menstruação empurra fases seguintes
+    const bleedDays = logs
+      .filter(l => {
+        const d = differenceInDays(parseISO(l.date), cycleStartDate);
+        return d >= 0 && d < 20 &&
+          (l.bleeding === 'heavy' || l.bleeding === 'medium' || l.bleeding === 'light');
+      })
+      .sort((a,b) => a.date.localeCompare(b.date));
+    const lastBleedOffset = bleedDays.length > 0
+      ? differenceInDays(parseISO(bleedDays[bleedDays.length - 1].date), cycleStartDate)
+      : null;
+    if (lastBleedOffset !== null && lastBleedOffset > cycleRanges.menstrualEnd) {
+      const shift = lastBleedOffset - cycleRanges.menstrualEnd;
+      cycleRanges = {
+        ...cycleRanges,
+        menstrualEnd:  lastBleedOffset,
+        fertileStart:  cycleRanges.fertileStart + shift,
+        fertileEnd:    cycleRanges.fertileEnd + shift,
+        ovulationDay:  cycleRanges.ovulationDay + shift,
+        lutealStart:   cycleRanges.lutealStart + shift,
+      };
+    }
+
+    // Ajuste B: ápice confirmado ancora a ovulação real
+    const peakInCycle = logs.find(l => {
+      if (!l.isPeak) return false;
+      const d = differenceInDays(parseISO(l.date), cycleStartDate);
+      return d >= 0 && d < avgCycle + 7;
+    });
+    if (peakInCycle) {
+      const peakDay = differenceInDays(parseISO(peakInCycle.date), cycleStartDate);
+      cycleRanges = {
+        ...cycleRanges,
+        ovulationDay: peakDay,
+        fertileStart: Math.max(cycleRanges.menstrualEnd + 1, peakDay - 5 - CYCLE_SAFETY_MARGIN),
+        fertileEnd:   peakDay + CYCLE_SAFETY_MARGIN,
+        lutealStart:  peakDay + CYCLE_SAFETY_MARGIN + 1,
+      };
+    }
+  }
+
   const currentCycleDay = lastCycleStart
     ? differenceInDays(parseISO(today), parseISO(lastCycleStart)) + 1
     : null;
-  const cycleRanges = getCycleRangesLocal(avgCycle);
-  const fertileStartDay = cycleRanges.fertileStart + 1;
-  const fertileEndDay   = cycleRanges.fertileEnd + 1;
+
+  // Datas absolutas para exibição (1-indexed para o usuário)
+  const fertileStartDay  = cycleRanges.fertileStart + 1;
+  const fertileEndDay    = cycleRanges.fertileEnd + 1;
+  const ovulationDay1    = cycleRanges.ovulationDay + 1;
+
+  const fertileStartDate = lastCycleStart
+    ? format(addDays(parseISO(lastCycleStart), cycleRanges.fertileStart), 'dd/MM')
+    : null;
+  const fertileEndDate = lastCycleStart
+    ? format(addDays(parseISO(lastCycleStart), cycleRanges.fertileEnd), 'dd/MM')
+    : null;
+  const ovulationDate = lastCycleStart
+    ? format(addDays(parseISO(lastCycleStart), cycleRanges.ovulationDay), 'dd/MM')
+    : null;
+  const nextCycleDate = lastCycleStart
+    ? format(addDays(parseISO(lastCycleStart), avgCycle), 'dd/MM/yyyy')
+    : null;
+
+  // Detectar se hoje está na janela fértil ou pós-ov para exibir badge extra
+  const todayDayInCycle = currentCycleDay !== null ? currentCycleDay - 1 : -1; // 0-indexed
+  const inFertileWindow  = todayDayInCycle >= cycleRanges.fertileStart && todayDayInCycle <= cycleRanges.fertileEnd;
+  const inPostOvulatory  = todayDayInCycle > cycleRanges.fertileEnd;
+  const daysUntilFertile = lastCycleStart && !inFertileWindow && todayDayInCycle < cycleRanges.fertileStart
+    ? cycleRanges.fertileStart - todayDayInCycle
+    : null;
 
   return (
     <div className="space-y-8">
@@ -323,27 +400,34 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
         <div className="absolute top-0 left-0 right-0 h-1.5" style={{ backgroundColor: color }} />
         <p className="text-[11px] uppercase tracking-[0.2em] text-brand-muted font-bold mb-4">Olá, {profile.name}</p>
         <h2 className="text-4xl font-serif text-brand-text mb-2 italic leading-tight">{statusLabel[todayStatus]}</h2>
-        <p className="text-sm font-sans text-brand-muted mb-10">{format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}</p>
+        <p className="text-sm font-sans text-brand-muted mb-6">{format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}</p>
+
+        {/* Barra de progresso do ciclo */}
         {currentCycleDay !== null && currentCycleDay > 0 && currentCycleDay <= avgCycle + 7 && (
-          <div className="w-full max-w-xs mb-8 space-y-2">
+          <div className="w-full max-w-xs mb-6 space-y-2">
             <div className="flex justify-between items-center">
               <span className="text-[9px] font-bold uppercase tracking-widest text-brand-muted">Dia do Ciclo</span>
               <span className="text-[9px] font-bold text-brand-olive">{currentCycleDay} / {avgCycle}</span>
             </div>
             <div className="h-1.5 bg-black/5 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-700"
-                style={{
-                  width: `${Math.min(100, (currentCycleDay / avgCycle) * 100)}%`,
-                  backgroundColor: color
-                }}
-              />
+              <div className="h-full rounded-full transition-all duration-700"
+                style={{ width: `${Math.min(100, (currentCycleDay / avgCycle) * 100)}%`, backgroundColor: color }} />
             </div>
-            <p className="text-[9px] text-brand-muted italic text-center">
-              Janela fértil est.: dias {fertileStartDay}–{fertileEndDay}
-            </p>
+            {/* Info fértil dinâmica */}
+            {fertileStartDate && (
+              <p className="text-[9px] text-brand-muted italic text-center">
+                {inFertileWindow
+                  ? `🌸 Você está na janela fértil (até ${fertileEndDate})`
+                  : inPostOvulatory
+                  ? `🔵 Pós-ovulatório · Próx. ciclo: ${nextCycleDate}`
+                  : daysUntilFertile !== null
+                  ? `Janela fértil em ${daysUntilFertile} dia(s) · ${fertileStartDate}–${fertileEndDate}`
+                  : `Janela fértil est.: ${fertileStartDate}–${fertileEndDate}`}
+              </p>
+            )}
           </div>
         )}
+
         <div className="relative group">
           <div className="w-40 h-40 rounded-full flex items-center justify-center" style={{ backgroundColor: `${color}10` }}>
             <div className="w-28 h-28 rounded-full flex items-center justify-center shadow-lg transition-transform duration-500 group-hover:scale-105" style={{ backgroundColor: color }}>
@@ -351,6 +435,24 @@ function Dashboard({ logs, onAddLog, profile }: { logs: DailyLog[], onAddLog: (d
             </div>
           </div>
         </div>
+
+        {/* Cards de info rápida do ciclo */}
+        {lastCycleStart && (
+          <div className="mt-6 w-full grid grid-cols-3 gap-3 max-w-xs">
+            <div className="bg-brand-page/60 rounded-2xl p-3 text-center">
+              <p className="text-[8px] font-bold uppercase tracking-widest text-brand-muted mb-1">Ovulação Est.</p>
+              <p className="text-[13px] font-serif italic" style={{ color: '#E8622A' }}>{ovulationDate}</p>
+            </div>
+            <div className="bg-brand-page/60 rounded-2xl p-3 text-center">
+              <p className="text-[8px] font-bold uppercase tracking-widest text-brand-muted mb-1">Janela Fértil</p>
+              <p className="text-[10px] font-serif italic text-brand-olive leading-tight">{fertileStartDate}–{fertileEndDate}</p>
+            </div>
+            <div className="bg-brand-page/60 rounded-2xl p-3 text-center">
+              <p className="text-[8px] font-bold uppercase tracking-widest text-brand-muted mb-1">Próx. Ciclo</p>
+              <p className="text-[10px] font-serif italic text-brand-olive leading-tight">{nextCycleDate}</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -2007,10 +2109,38 @@ function CycleSimulator() {
 
 function Profile({ logs, profile, onUpdate, onClear }: { logs: DailyLog[], profile: UserProfile, onUpdate: (u: Partial<UserProfile>) => void, onClear: () => void }) {
   const [isEditing, setIsEditing] = useState(false);
+
+  // Estado local para edição dos campos — evita chamar onUpdate a cada tecla digitada.
+  // Ao clicar "Salvar", todos os campos são persistidos de uma vez.
+  const [editName, setEditName]           = useState(profile.name);
+  const [editHeight, setEditHeight]       = useState(profile.height ? String(profile.height) : '');
+  const [editWeight, setEditWeight]       = useState(profile.weight ? String(profile.weight) : '');
+  const [editCycleLen, setEditCycleLen]   = useState(profile.cycleLength ? String(profile.cycleLength) : '28');
+
+  // Sincroniza campos locais quando o perfil externo atualizar (ex: carregamento inicial)
+  React.useEffect(() => {
+    setEditName(profile.name);
+    setEditHeight(profile.height ? String(profile.height) : '');
+    setEditWeight(profile.weight ? String(profile.weight) : '');
+    setEditCycleLen(profile.cycleLength ? String(profile.cycleLength) : '28');
+  }, [profile.name, profile.height, profile.weight, profile.cycleLength]);
+
+  const handleSaveProfile = () => {
+    const updates: Partial<UserProfile> = { name: editName };
+    const h = parseInt(editHeight);
+    const w = parseFloat(editWeight);
+    const c = parseInt(editCycleLen);
+    if (!isNaN(h) && h > 0) updates.height = h;
+    if (!isNaN(w) && w > 0) updates.weight = w;
+    if (!isNaN(c) && c >= 21 && c <= 45) updates.cycleLength = c;
+    onUpdate(updates);
+    setIsEditing(false);
+  };
+
   return (
     <div className="space-y-12 pb-20">
       <header className="flex flex-col items-center">
-        <div className="relative group cursor-pointer" onClick={() => setIsEditing(!isEditing)}>
+        <div className="relative group cursor-pointer" onClick={() => { if (!isEditing) setIsEditing(true); }}>
           <div className="w-32 h-32 bg-brand-cream rounded-full flex items-center justify-center p-1 border border-black/5 shadow-soft overflow-hidden group-hover:scale-95 transition-transform duration-500">
             <div className="w-full h-full bg-brand-olive rounded-full flex items-center justify-center"><User size={48} className="text-white opacity-80" /></div>
           </div>
@@ -2026,22 +2156,44 @@ function Profile({ logs, profile, onUpdate, onClear }: { logs: DailyLog[], profi
         <section className="bg-white p-8 rounded-[40px] shadow-soft border border-brand-olive/5">
           <header className="flex items-center justify-between mb-8">
             <h3 className="text-[11px] font-bold uppercase tracking-widest text-brand-text">Dados Pessoais & Biometria</h3>
-            <button onClick={() => setIsEditing(!isEditing)} className="text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline">{isEditing ? 'Salvar' : 'Editar'}</button>
+            <button
+              onClick={() => isEditing ? handleSaveProfile() : setIsEditing(true)}
+              className="text-[10px] font-bold uppercase tracking-widest text-brand-olive hover:underline"
+            >
+              {isEditing ? 'Salvar' : 'Editar'}
+            </button>
           </header>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {[
-              { label: 'Nome Completo', type: 'text', value: profile.name, onChange: (v: string) => onUpdate({ name: v }) },
-              { label: 'Altura (cm)', type: 'number', value: profile.height || '', onChange: (v: string) => onUpdate({ height: parseInt(v) }) },
-              { label: 'Peso (kg)', type: 'number', value: profile.weight || '', onChange: (v: string) => onUpdate({ weight: parseFloat(v) }) },
-              { label: 'Duração do Ciclo (Méd.)', type: 'number', value: profile.cycleLength || '', onChange: (v: string) => onUpdate({ cycleLength: parseInt(v) }) },
+              { label: 'Nome Completo',          type: 'text',   value: editName,      onChange: setEditName },
+              { label: 'Altura (cm)',             type: 'number', value: editHeight,    onChange: setEditHeight },
+              { label: 'Peso (kg)',               type: 'number', value: editWeight,    onChange: setEditWeight },
+              { label: 'Duração do Ciclo (dias)', type: 'number', value: editCycleLen,  onChange: setEditCycleLen },
             ].map(f => (
               <div key={f.label} className="space-y-2">
                 <label className="text-[10px] font-bold text-brand-muted uppercase tracking-widest">{f.label}</label>
-                <input type={f.type} disabled={!isEditing} value={f.value as any} onChange={(e) => f.onChange(e.target.value)}
-                  className="w-full p-3 bg-brand-page/50 rounded-xl border border-black/5 focus:outline-none text-sm font-serif italic" />
+                <input
+                  type={f.type}
+                  disabled={!isEditing}
+                  value={f.value}
+                  onChange={(e) => f.onChange(e.target.value)}
+                  className="w-full p-3 bg-brand-page/50 rounded-xl border border-black/5 focus:outline-none text-sm font-serif italic disabled:opacity-60"
+                />
               </div>
             ))}
           </div>
+          {isEditing && (
+            <div className="mt-4 flex gap-3">
+              <button onClick={() => { setIsEditing(false); setEditName(profile.name); setEditHeight(profile.height ? String(profile.height) : ''); setEditWeight(profile.weight ? String(profile.weight) : ''); setEditCycleLen(profile.cycleLength ? String(profile.cycleLength) : '28'); }}
+                className="flex-1 py-3 text-brand-muted font-bold uppercase tracking-widest text-[10px] hover:text-brand-text transition-colors">
+                Cancelar
+              </button>
+              <button onClick={handleSaveProfile}
+                className="flex-[2] py-3 bg-brand-olive text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] shadow-md">
+                Salvar Dados
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="bg-white p-8 rounded-[40px] shadow-soft border border-brand-olive/5">
