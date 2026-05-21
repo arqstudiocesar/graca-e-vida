@@ -70,7 +70,12 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // ── Carregar dados ao iniciar — persiste mesmo fechando/reabrindo o app ──────
+  // ── Flag: bloqueia os effects de persistência antes do carregamento inicial ──
+  // Sem isso, o useEffect de salvar dispara com [] antes de carregar os dados,
+  // sobrescrevendo o localStorage com uma lista vazia.
+  const initialLoadDone = React.useRef(false);
+
+  // ── CARREGAMENTO INICIAL — restaura todos os dados ao abrir/reabrir o app ───
   useEffect(() => {
     try {
       const savedLogs    = localStorage.getItem(STORAGE_KEY_LOGS);
@@ -78,7 +83,9 @@ export default function App() {
 
       if (savedLogs) {
         const parsed = JSON.parse(savedLogs);
-        if (Array.isArray(parsed)) setLogs(parsed);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setLogs(parsed);
+        }
       }
 
       if (savedProfile) {
@@ -92,11 +99,15 @@ export default function App() {
       }
     } catch (e) {
       console.warn('Erro ao carregar dados salvos:', e);
+    } finally {
+      // Libera a gravação apenas APÓS o carregamento terminar
+      initialLoadDone.current = true;
     }
   }, []);
 
-  // ── Salvar logs sempre que mudarem ──────────────────────────────────────────
+  // ── PERSISTÊNCIA: salva logs sempre que mudarem (após carregamento inicial) ──
   useEffect(() => {
+    if (!initialLoadDone.current) return;
     try {
       localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(logs));
     } catch (e) {
@@ -104,8 +115,9 @@ export default function App() {
     }
   }, [logs]);
 
-  // ── Salvar perfil sempre que mudar ─────────────────────────────────────────
+  // ── PERSISTÊNCIA: salva perfil sempre que mudar (após carregamento inicial) ─
   useEffect(() => {
+    if (!initialLoadDone.current) return;
     try {
       localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
     } catch (e) {
@@ -114,17 +126,49 @@ export default function App() {
   }, [profile]);
 
   const handleSaveLog = (newLog: DailyLog) => {
-    // Auto-detectar Dia 1: sangramento intenso/médio = início de ciclo real
-    // (escape/leve NÃO conta como Dia 1 — regra principal do ciclo)
-    const autoIsCycleStart =
-      newLog.bleeding === 'heavy' || newLog.bleeding === 'medium'
-        ? true
-        : newLog.isCycleStart || false;
-    const logToSave = { ...newLog, isCycleStart: autoIsCycleStart };
+    // ── REGRA: Dia 1 do ciclo = SOMENTE primeiro sangramento intenso/médio ──────
+    // Escape leve (light) NÃO vira Dia 1. Sobrescreve isCycleStart da lógica antiga.
+    const isTrueHeavyFlow = newLog.bleeding === 'heavy' || newLog.bleeding === 'medium';
+    const logToSave: DailyLog = {
+      ...newLog,
+      isCycleStart: isTrueHeavyFlow ? true : false,
+    };
 
     setLogs(prev => {
-      const filtered = prev.filter(l => l.date !== logToSave.date);
-      return [...filtered, logToSave].sort((a, b) => a.date.localeCompare(b.date));
+      // 1. Remove o log existente para a mesma data (atualização)
+      const withoutThisDate = prev.filter(l => l.date !== logToSave.date);
+
+      // 2. Se este dia é um novo início de ciclo (sangramento intenso/médio),
+      //    procurar se já existe um início de ciclo dentro de uma janela de ±40 dias
+      //    (mesmo ciclo) e remover aquele marcador — só pode haver UM por ciclo.
+      let cleaned = withoutThisDate;
+      if (isTrueHeavyFlow) {
+        cleaned = withoutThisDate.map(l => {
+          const gap = Math.abs(differenceInDays(parseISO(logToSave.date), parseISO(l.date)));
+          // Mesmo ciclo = dentro de 40 dias. Remove marcação de cicloStart anterior.
+          if (gap < 40 && gap > 0 && (l as any).isCycleStart === true) {
+            const { isCycleStart: _, ...rest } = l as any;
+            return { ...rest, isCycleStart: false };
+          }
+          return l;
+        });
+      }
+
+      // 3. Se o usuário estava marcando ápice (isPeak), garante que não há outro
+      //    ápice dentro do mesmo ciclo (janela de 40 dias)
+      if (logToSave.isPeak) {
+        cleaned = cleaned.map(l => {
+          const gap = Math.abs(differenceInDays(parseISO(logToSave.date), parseISO(l.date)));
+          if (gap < 40 && gap > 0 && l.isPeak) {
+            return { ...l, isPeak: false };
+          }
+          return l;
+        });
+      }
+
+      // 4. Insere o log e ordena — o recalculo do calendário é automático
+      //    porque Calendar e Dashboard derivam tudo dos logs via buildCalendarMap()
+      return [...cleaned, logToSave].sort((a, b) => a.date.localeCompare(b.date));
     });
     setActiveTab('dashboard');
   };
@@ -414,41 +458,70 @@ type PredictedPhase = 'pred-menstrual' | 'pred-proliferative' | 'pred-ovulatory'
 const CYCLE_SAFETY_MARGIN = 2;
 
 function getCycleRangesLocal(cycleLength: number) {
-  const ovulationDay    = cycleLength - 14;
-  const fertileStart    = Math.max(6, ovulationDay - 5 - CYCLE_SAFETY_MARGIN);
-  const fertileEnd      = ovulationDay + CYCLE_SAFETY_MARGIN;
-  return { menstrualEnd: 4, fertileStart, fertileEnd, ovulationDay };
+  const ovulationDay     = cycleLength - 14;
+  const pureFertileStart = ovulationDay - 5;
+  const fertileStart     = Math.max(6, pureFertileStart - CYCLE_SAFETY_MARGIN);
+  const fertileEnd       = ovulationDay + CYCLE_SAFETY_MARGIN;
+  return {
+    menstrualEnd: 4,
+    fertileStart,
+    fertileEnd,
+    ovulationDay,
+    lutealStart:  fertileEnd + 1,
+    cycleEnd:     cycleLength - 1,
+  };
 }
 
 function findCycleStartsLocal(logs: DailyLog[]): string[] {
+  // ── Ordenar cronologicamente ──────────────────────────────────────────────
   const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date));
   const starts: string[] = [];
 
   for (let i = 0; i < sorted.length; i++) {
     const log = sorted[i];
 
-    // Regra 1: marcado explicitamente pelo usuário como Dia 1
-    const explicitStart = (log as any).isCycleStart === true;
+    // Regra: Dia 1 = SOMENTE sangramento intenso (heavy) ou médio (medium).
+    // Escape leve (light) e manchas NÃO contam — nunca viram Dia 1.
+    const isTrueFlow = log.bleeding === 'heavy' || log.bleeding === 'medium';
+    // Marcação explícita pelo usuário (isCycleStart) também é aceita
+    const isExplicit = (log as any).isCycleStart === true;
 
-    // Regra 2: sangramento intenso/médio (fluxo verdadeiro) após pausa de ≥4 dias
-    // IGNORA: leve/spotting (escape, borra) — esses NÃO contam como Dia 1
-    const isTrueBleed = log.bleeding === 'heavy' || log.bleeding === 'medium';
-    const prev        = sorted[i - 1];
-    const gap         = prev ? differenceInDays(parseISO(log.date), parseISO(prev.date)) : 99;
-    const prevBleeding = prev && (prev.bleeding === 'heavy' || prev.bleeding === 'medium');
-    const isNewFlow   = isTrueBleed && (!prevBleeding || gap > 4);
+    if (!isTrueFlow && !isExplicit) continue;
 
-    if (explicitStart || isNewFlow) {
-      const lastStart = starts[starts.length - 1];
-      // Evitar dois inícios muito próximos (< 18 dias)
-      if (!lastStart || differenceInDays(parseISO(log.date), parseISO(lastStart)) >= 18) {
-        starts.push(log.date);
-      } else if (explicitStart) {
-        // Marcação explícita do usuário sobrepõe o último início se mais recente
+    // Verificar se é continuação do fluxo anterior (não é um novo ciclo)
+    const prev = sorted[i - 1];
+    const gapFromPrev = prev ? differenceInDays(parseISO(log.date), parseISO(prev.date)) : 99;
+    const prevWasTrueFlow = prev &&
+      (prev.bleeding === 'heavy' || prev.bleeding === 'medium' || (prev as any).isCycleStart);
+    const isNewFlowEvent = !prevWasTrueFlow || gapFromPrev > 4;
+
+    if (!isNewFlowEvent && !isExplicit) continue;
+
+    const lastStart = starts.length > 0 ? starts[starts.length - 1] : null;
+    const gapFromLastStart = lastStart
+      ? differenceInDays(parseISO(log.date), parseISO(lastStart))
+      : 999;
+
+    if (!lastStart || gapFromLastStart >= 18) {
+      // Novo ciclo suficientemente distante do anterior → adicionar
+      starts.push(log.date);
+    } else if (isExplicit && gapFromLastStart > 0) {
+      // Marcação explícita dentro da mesma janela de ciclo:
+      // o usuário está CORRIGINDO o Dia 1 → substitui o anterior
+      starts[starts.length - 1] = log.date;
+    } else if (isTrueFlow && gapFromLastStart > 0 && gapFromLastStart < 18) {
+      // Sangramento intenso mais cedo que o esperado para um novo ciclo:
+      // verificar se o log anterior (inicio de ciclo) era apenas leve
+      const prevStartLog = sorted.find(l => l.date === lastStart);
+      const prevWasLight = prevStartLog &&
+        prevStartLog.bleeding !== 'heavy' && prevStartLog.bleeding !== 'medium';
+      if (prevWasLight) {
+        // Substituir o início anterior (que era leve) pelo novo (intenso)
         starts[starts.length - 1] = log.date;
       }
     }
   }
+
   return starts;
 }
 
@@ -699,39 +772,98 @@ function buildCalendarMap(
   const cycleStarts = findCycleStartsLocal(logs);
   const avgCycle    = calcAvgLocal(cycleStarts, fallbackCycle);
 
-  // Se não há registros, usar o 1º dia do mês corrente como início de ciclo modelo
-  // para que o calendário sempre mostre um ciclo visual completo.
+  // ── Ponto de referência do ciclo atual ─────────────────────────────────────
   const today = new Date();
   const modelStart = cycleStarts.length > 0
     ? parseISO(cycleStarts[cycleStarts.length - 1])
     : new Date(today.getFullYear(), today.getMonth(), 1);
 
-  const ranges = getCycleRangesLocal(avgCycle);
+  // ── Verificar se o usuário confirmou ápice dentro do ciclo atual ───────────
+  // Se sim, usar essa data como âncora para recalcular ovulação/pós-ovulatório.
+  const confirmedPeakLog = [...logs]
+    .filter(l => {
+      if (!l.isPeak) return false;
+      const diff = differenceInDays(parseISO(l.date), modelStart);
+      return diff >= 0 && diff < avgCycle + 7;
+    })
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+
+  // ── Verificar duração real da menstruação atual (para recalc dinâmico) ─────
+  // Se o usuário registrou mais dias de fluxo do que o previsto, o fim real
+  // da menstruação empurra todas as fases subsequentes.
+  const bleedingDaysInCycle = [...logs]
+    .filter(l => {
+      const diff = differenceInDays(parseISO(l.date), modelStart);
+      return diff >= 0 && diff < 20 &&
+        (l.bleeding === 'heavy' || l.bleeding === 'medium' || l.bleeding === 'light');
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const lastBleedingDay = bleedingDaysInCycle.length > 0
+    ? differenceInDays(parseISO(bleedingDaysInCycle[bleedingDaysInCycle.length - 1].date), modelStart)
+    : null;
+
+  // ── Calcular ranges base ────────────────────────────────────────────────────
+  let ranges = getCycleRangesLocal(avgCycle);
+
+  // Ajuste dinâmico 1: se menstruação real durou mais do que previsto,
+  // empurrar o início fértil para depois do último dia de fluxo real + 1
+  if (lastBleedingDay !== null && lastBleedingDay > ranges.menstrualEnd) {
+    const shift = lastBleedingDay - ranges.menstrualEnd;
+    ranges = {
+      ...ranges,
+      menstrualEnd:  lastBleedingDay,
+      fertileStart:  Math.max(ranges.fertileStart, ranges.fertileStart + shift),
+      fertileEnd:    ranges.fertileEnd + shift,
+      ovulationDay:  ranges.ovulationDay + shift,
+      lutealStart:   ranges.lutealStart + shift,
+    };
+  }
+
+  // Ajuste dinâmico 2: se o usuário confirmou ápice, ancorá-lo como ovulação real
+  if (confirmedPeakLog) {
+    const peakDay = differenceInDays(parseISO(confirmedPeakLog.date), modelStart);
+    ranges = {
+      ...ranges,
+      ovulationDay: peakDay,
+      fertileStart: Math.max(ranges.menstrualEnd + 1, peakDay - 5 - CYCLE_SAFETY_MARGIN),
+      fertileEnd:   peakDay + CYCLE_SAFETY_MARGIN,
+      lutealStart:  peakDay + CYCLE_SAFETY_MARGIN + 1,
+    };
+  }
+
   const ovDay  = ranges.ovulationDay;
   const fStart = ranges.fertileStart;
   const fEnd   = ranges.fertileEnd;
   const map: Record<string, CycleDayInfo> = {};
 
-  // Cobrir 4 ciclos para frente e 2 atrás — garante qualquer mês navegado
+  // ── Cobrir 4 ciclos para frente e 2 atrás (garante qualquer mês navegado) ──
   for (let cycleOffset = -2; cycleOffset <= 4; cycleOffset++) {
     const cycleStart = addDays(modelStart, cycleOffset * avgCycle);
+
+    // Para ciclos diferentes do atual, usar ranges base sem ajustes individuais
+    const useRanges = cycleOffset === 0 ? ranges : getCycleRangesLocal(avgCycle);
+    const cOvDay  = cycleOffset === 0 ? ovDay  : useRanges.ovulationDay;
+    const cFStart = cycleOffset === 0 ? fStart : useRanges.fertileStart;
+    const cFEnd   = cycleOffset === 0 ? fEnd   : useRanges.fertileEnd;
+
     for (let d = 0; d < avgCycle; d++) {
       const date = format(addDays(cycleStart, d), 'yyyy-MM-dd');
       const log  = logs.find(l => l.date === date);
       if (map[date]) continue;
 
       let predictedPhase: CycleDayInfo['predictedPhase'] = null;
-      if (d <= ranges.menstrualEnd) {
+
+      if (d <= useRanges.menstrualEnd) {
         predictedPhase = 'menstrual';
-      } else if (d < fStart) {
+      } else if (d < cFStart) {
         predictedPhase = 'infertile';
-      } else if (d === ovDay) {
+      } else if (d === cOvDay) {
         predictedPhase = 'ovulation';
-      } else if (d >= ovDay - 1 && d <= ovDay + 1) {
+      } else if (d >= cOvDay - 1 && d <= cOvDay + 1) {
         predictedPhase = 'fertile-peak';
-      } else if (d >= fStart && d <= fEnd) {
-        const isEntryMargin = d < fStart + CYCLE_SAFETY_MARGIN;
-        const isExitMargin  = d > fEnd - CYCLE_SAFETY_MARGIN;
+      } else if (d >= cFStart && d <= cFEnd) {
+        const isEntryMargin = d < cFStart + CYCLE_SAFETY_MARGIN;
+        const isExitMargin  = d > cFEnd - CYCLE_SAFETY_MARGIN;
         predictedPhase = (isEntryMargin || isExitMargin) ? 'fertile-safety' : 'fertile-growing';
       } else {
         predictedPhase = 'luteal';
@@ -739,7 +871,7 @@ function buildCalendarMap(
 
       map[date] = {
         predictedPhase,
-        isOvulationDay:  d === ovDay,
+        isOvulationDay:  d === cOvDay,
         isSafetyMargin:  predictedPhase === 'fertile-safety',
         confirmedPhase:  log ? getFertilityStatus(logs, date, fallbackCycle) : null,
         hasLog:          !!log,
@@ -1164,37 +1296,32 @@ function LogForm({ initialDate, onSave, onDelete, onCancel, existingLog, selecte
             </div>
             {/* Indicador visual de Dia 1 do ciclo */}
             {(log.bleeding === 'heavy' || log.bleeding === 'medium') && (
-              <div className="flex items-center gap-3 mt-3">
-                <div
-                  onClick={() => setLog(prev => ({ ...prev, isCycleStart: !(prev as any).isCycleStart }))}
-                  className={cn(
-                    "flex items-center gap-3 px-4 py-3 rounded-2xl border cursor-pointer transition-all w-full",
-                    (log as any).isCycleStart
-                      ? "bg-brand-terracotta/10 border-brand-terracotta/30"
-                      : "bg-white border-black/[0.06] hover:border-brand-terracotta/20"
-                  )}
-                >
-                  <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all",
-                    (log as any).isCycleStart ? "bg-brand-terracotta border-brand-terracotta" : "border-black/15")}>
-                    {(log as any).isCycleStart && <div className="w-2 h-2 bg-white rounded-full" />}
+              <div className="mt-3 space-y-2">
+                {/* Quando fluxo é heavy/medium, Dia 1 é automático — não togglável */}
+                <div className={cn(
+                  "flex items-center gap-3 px-4 py-3 rounded-2xl border w-full",
+                  "bg-brand-terracotta/10 border-brand-terracotta/30"
+                )}>
+                  <div className="w-5 h-5 rounded-full bg-brand-terracotta border-brand-terracotta border-2 flex items-center justify-center flex-shrink-0">
+                    <div className="w-2 h-2 bg-white rounded-full" />
                   </div>
                   <div className="flex-1">
-                    <p className={cn("text-[11px] font-bold uppercase tracking-wider",
-                      (log as any).isCycleStart ? "text-brand-terracotta" : "text-brand-muted")}>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-brand-terracotta">
                       ✦ Este é o Dia 1 do meu ciclo
                     </p>
                     <p className="text-[9px] italic text-brand-muted/70 font-serif mt-0.5">
-                      {(log as any).isCycleStart
-                        ? 'Marcado. O ciclo será recalculado a partir desta data.'
-                        : 'Toque para confirmar que este é o primeiro dia de fluxo verdadeiro.'}
+                      Marcado automaticamente. O ciclo será recalculado a partir desta data.
                     </p>
                   </div>
                 </div>
+                <p className="text-[9px] italic text-brand-muted/50 font-serif px-1">
+                  ℹ️ Apenas um Dia 1 por ciclo. Se já houver outro no mesmo período, será substituído automaticamente.
+                </p>
               </div>
             )}
             {log.bleeding === 'light' && (
               <p className="text-[9px] italic text-brand-muted/60 font-serif mt-2 px-1">
-                ⚠️ Fluxo leve (escape/mancha) não conta como Dia 1 do ciclo.
+                ⚠️ Fluxo leve (escape/mancha) não conta como Dia 1 do ciclo — apenas fluxo intenso ou médio.
               </p>
             )}
           </section>
